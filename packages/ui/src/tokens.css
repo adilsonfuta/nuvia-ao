@@ -1,0 +1,14 @@
+:root {
+  --ca-forest: #173b29;
+  --ca-forest-soft: #244b34;
+  --ca-gold: #bd8b36;
+  --ca-gold-pale: #eed4a3;
+  --ca-cream: #faf6ee;
+  --ca-paper: #fffdfa;
+  --ca-ink: #1c261f;
+  --ca-muted: #626961;
+  --ca-border: #e9e1d4;
+  --ca-radius-card: 18px;
+  --ca-radius-pill: 999px;
+  --ca-shadow-card: 0 8px 24px rgb(71 55 28 / 7%);
+}

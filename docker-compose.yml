@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: casar
+      POSTGRES_PASSWORD: casar
+      POSTGRES_DB: casar_angola
+    ports:
+      - "5433:5432"
+    volumes:
+      - casar_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U casar -d casar_angola"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  casar_data:

@@ -1,0 +1,4 @@
+CREATE TYPE "InvitationTheme" AS ENUM ('CLASSIC', 'BOTANICAL', 'TERRACOTTA');
+
+ALTER TABLE "Invitation"
+ADD COLUMN "theme" "InvitationTheme" NOT NULL DEFAULT 'CLASSIC';

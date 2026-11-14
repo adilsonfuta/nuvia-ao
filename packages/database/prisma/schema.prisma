@@ -1,0 +1,588 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectRole {
+  OWNER
+  EDITOR
+  VIEWER
+
+  @@map("WeddingRole")
+}
+
+enum ProjectKind {
+  WEDDING
+  ALAMBAMENTO
+  PARTY
+  OTHER
+}
+
+enum InvitationTheme {
+  CLASSIC
+  BOTANICAL
+  TERRACOTTA
+}
+
+enum EventType {
+  CIVIL
+  RELIGIOUS
+  ALAMBAMENTO
+  RECEPTION
+  CUSTOM
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  WAITING
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+}
+
+enum ExpenseStatus {
+  ESTIMATED
+  COMMITTED
+  PAID
+}
+
+enum VendorStatus {
+  DRAFT
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum QuoteRequestStatus {
+  NEW
+  SENT
+  RESPONDED
+  HIRED
+  CLOSED
+}
+
+enum RsvpStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum VendorApplicationStatus {
+  NEW
+  CONTACTED
+  DECLINED
+  CONVERTED
+}
+
+enum VendorContentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum VendorClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum VendorReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique
+  name            String?
+  passwordHash    String
+  role            UserRole         @default(USER)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  projects        ProjectMember[]
+  assignedTasks   Task[]           @relation("TaskAssignee")
+  quoteRequests   QuoteRequest[]
+  auditLogs       AuditLog[]
+  sessions        Session[]
+  vendorFavorites VendorFavorite[]
+  platformSettings PlatformSetting[]
+  managedVendors   Vendor[]                    @relation("VendorManager")
+  vendorClaims     VendorClaim[]
+  reviewedVendorClaims VendorClaim[]             @relation("VendorClaimReviewer")
+  vendorProfileSubmissions VendorProfileSubmission[] @relation("VendorProfileSubmitter")
+  reviewedVendorProfileSubmissions VendorProfileSubmission[] @relation("VendorProfileReviewer")
+  uploadedPortfolioItems VendorPortfolioItem[]   @relation("PortfolioUploader")
+  reviewedPortfolioItems VendorPortfolioItem[]   @relation("PortfolioReviewer")
+  authoredVendorReviews VendorReview[]            @relation("VendorReviewAuthor")
+  moderatedVendorReviews VendorReview[]           @relation("VendorReviewModerator")
+  respondedVendorReviews VendorReview[]           @relation("VendorReviewResponder")
+  moderatedVendorReviewResponses VendorReview[]   @relation("VendorReviewResponseModerator")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model RateLimitBucket {
+  key       String   @id
+  count     Int
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+}
+
+model EventProject {
+  id            String          @id @default(cuid())
+  title         String
+  kind          ProjectKind     @default(WEDDING)
+  date          DateTime?
+  province      String?
+  currency      String          @default("AOA")
+  budgetLimit   Decimal?        @db.Decimal(14, 2)
+  guestEstimate Int?
+  archivedAt    DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  members       ProjectMember[]
+  events        EventMoment[]
+  tasks         Task[]
+  guests        Guest[]
+  expenses      Expense[]
+  invitations   Invitation[]
+  quoteRequests QuoteRequest[]
+  vendorFavorites ProjectVendorFavorite[]
+  seatingTables SeatingTable[]
+
+  @@map("Wedding")
+}
+
+model ProjectMember {
+  projectId String       @map("weddingId")
+  userId    String
+  role      ProjectRole  @default(OWNER)
+  createdAt DateTime     @default(now())
+  project   EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId], map: "WeddingMember_pkey")
+  @@index([userId, role])
+  @@map("WeddingMember")
+}
+
+model EventMoment {
+  id        String       @id @default(cuid())
+  projectId String       @map("weddingId")
+  type      EventType
+  title     String
+  startsAt  DateTime?
+  venue     String?
+  project   EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rsvps     RSVP[]
+
+  @@index([projectId, startsAt])
+  @@map("WeddingEvent")
+}
+
+model Task {
+  id           String       @id @default(cuid())
+  projectId    String       @map("weddingId")
+  title        String
+  category     String       @default("Planeamento")
+  dueAt        DateTime?
+  assigneeName String?
+  assigneeUserId String?
+  status       TaskStatus   @default(TODO)
+  priority     TaskPriority @default(NORMAL)
+  createdAt    DateTime     @default(now())
+  project      EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignedTo   User?        @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  expenses     Expense[]
+
+  @@index([projectId, status, dueAt])
+  @@index([assigneeUserId])
+}
+
+model Guest {
+  id             String        @id @default(cuid())
+  projectId      String        @map("weddingId")
+  name           String
+  email          String?
+  phone          String?
+  groupName      String?
+  maxPartySize   Int      @default(1)
+  seatingTableId String?
+  rsvpToken      String        @unique @default(cuid())
+  createdAt      DateTime      @default(now())
+  project        EventProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  seatingTable   SeatingTable? @relation(fields: [seatingTableId], references: [id], onDelete: SetNull)
+  rsvps          RSVP[]
+
+  @@index([projectId, name])
+  @@index([seatingTableId])
+}
+
+model SeatingTable {
+  id        String       @id @default(cuid())
+  projectId String       @map("weddingId")
+  name      String
+  capacity  Int?
+  createdAt DateTime     @default(now())
+  project   EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  guests    Guest[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+model Expense {
+  id        String        @id @default(cuid())
+  projectId String        @map("weddingId")
+  title     String
+  category  String        @default("Outros")
+  amount    Decimal       @db.Decimal(14, 2)
+  currency  String        @default("AOA")
+  status    ExpenseStatus @default(ESTIMATED)
+  dueAt     DateTime?
+  taskId    String?
+  quoteRequestId String? @unique
+  createdAt DateTime      @default(now())
+  project   EventProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task      Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  quoteRequest QuoteRequest? @relation(fields: [quoteRequestId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status])
+  @@index([taskId])
+}
+
+model Invitation {
+  id        String       @id @default(cuid())
+  projectId String       @map("weddingId")
+  slug      String       @unique
+  headline  String?
+  message   String?
+  theme     InvitationTheme @default(CLASSIC)
+  isPublic  Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  project   EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model RSVP {
+  id        String       @id @default(cuid())
+  guestId   String
+  eventId   String?
+  eventKey  String       @default("all")
+  status    RsvpStatus   @default(PENDING)
+  partySize Int          @default(1)
+  note      String?
+  updatedAt DateTime     @updatedAt
+  guest     Guest        @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  event     EventMoment? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@unique([guestId, eventKey])
+  @@index([eventId, status])
+}
+
+model Vendor {
+  id                String           @id @default(cuid())
+  slug              String           @unique
+  name              String
+  category          String
+  description       String?
+  services          String[]         @default([])
+  serviceAreas      String[]         @default([])
+  galleryUrls       String[]         @default([])
+  province          String?
+  municipality      String?
+  capacityMin       Int?
+  capacityMax       Int?
+  priceFrom         Decimal?         @db.Decimal(14, 2)
+  priceTo           Decimal?         @db.Decimal(14, 2)
+  bookingTerms      String?
+  paymentTerms      String?
+  cancellationTerms String?
+  phone             String?
+  email             String?
+  websiteUrl        String?
+  instagramUrl      String?
+  facebookUrl       String?
+  tiktokUrl         String?
+  ownerUserId       String?
+  status            VendorStatus     @default(PENDING)
+  isDemo            Boolean          @default(false)
+  verifiedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  quoteRequests     QuoteRequest[]
+  favorites         VendorFavorite[]
+  projectFavorites  ProjectVendorFavorite[]
+  applications      VendorApplication[]
+  owner             User?                  @relation("VendorManager", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  claims            VendorClaim[]
+  portfolio         VendorPortfolioItem[]
+  profileSubmissions VendorProfileSubmission[]
+  reviews           VendorReview[]
+
+  @@index([status, category, province])
+}
+
+model VendorClaim {
+  id         String            @id @default(cuid())
+  vendorId   String
+  userId     String
+  status     VendorClaimStatus @default(PENDING)
+  message    String
+  reason     String?
+  createdAt  DateTime          @default(now())
+  reviewedAt DateTime?
+  reviewedBy String?
+  vendor     Vendor            @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewer   User?             @relation("VendorClaimReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@unique([vendorId, userId])
+  @@index([status, createdAt])
+}
+
+model VendorPortfolioItem {
+  id               String             @id @default(cuid())
+  vendorId         String
+  storageKey       String             @unique
+  altText          String
+  sortOrder        Int                @default(0)
+  isCover          Boolean            @default(false)
+  status           VendorContentStatus @default(PENDING)
+  rejectionReason String?
+  uploadedBy       String?
+  reviewedBy       String?
+  uploadedAt       DateTime           @default(now())
+  reviewedAt       DateTime?
+  vendor           Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  uploader         User?              @relation("PortfolioUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+  reviewer         User?              @relation("PortfolioReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, status, sortOrder])
+}
+
+model VendorProfileSubmission {
+  id          String             @id @default(cuid())
+  vendorId    String
+  submittedBy String?
+  reviewedBy  String?
+  payload     Json
+  status      VendorContentStatus @default(PENDING)
+  reason      String?
+  createdAt   DateTime           @default(now())
+  reviewedAt  DateTime?
+  vendor      Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  submitter   User?              @relation("VendorProfileSubmitter", fields: [submittedBy], references: [id], onDelete: SetNull)
+  reviewer    User?              @relation("VendorProfileReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, status, createdAt])
+}
+
+model VendorApplication {
+  id            String                  @id @default(cuid())
+  businessName  String
+  contactName   String
+  email         String
+  phone         String
+  category      String
+  province      String
+  municipality  String?
+  website       String?
+  message       String
+  status        VendorApplicationStatus @default(NEW)
+  createdAt     DateTime                @default(now())
+  reviewedAt    DateTime?
+  vendorId      String?                 @unique
+  vendor        Vendor?                 @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([email])
+}
+
+model VendorFavorite {
+  userId    String
+  vendorId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@id([userId, vendorId])
+  @@index([vendorId])
+}
+
+model ProjectVendorFavorite {
+  projectId String
+  vendorId  String
+  createdAt DateTime     @default(now())
+  project   EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  vendor    Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, vendorId])
+  @@index([vendorId])
+}
+
+model QuoteRequest {
+  id        String             @id @default(cuid())
+  projectId String             @map("weddingId")
+  userId    String
+  vendorId  String
+  message   String
+  status    QuoteRequestStatus @default(NEW)
+  quotedAmount Decimal?         @db.Decimal(14, 2)
+  responseNote String?
+  respondedAt DateTime?
+  createdAt DateTime           @default(now())
+  project   EventProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor    Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  expense   Expense?
+  review    VendorReview?
+
+  @@index([projectId, createdAt])
+  @@index([vendorId, status])
+}
+
+model VendorReview {
+  id                  String             @id @default(cuid())
+  quoteRequestId      String             @unique
+  vendorId            String
+  reviewerId          String?
+  rating              Int
+  communicationRating Int
+  punctualityRating   Int
+  qualityRating       Int
+  comment             String?
+  isAnonymous         Boolean            @default(true)
+  status              VendorReviewStatus @default(PENDING)
+  rejectionReason     String?
+  reviewedAt          DateTime?
+  reviewedBy          String?
+  response            String?
+  responseStatus      VendorContentStatus?
+  responseReason      String?
+  responseBy          String?
+  responseAt          DateTime?
+  responseReviewedAt  DateTime?
+  responseReviewedBy  String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  quoteRequest        QuoteRequest       @relation(fields: [quoteRequestId], references: [id], onDelete: Cascade)
+  vendor              Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  reviewer            User?              @relation("VendorReviewAuthor", fields: [reviewerId], references: [id], onDelete: SetNull)
+  moderator           User?              @relation("VendorReviewModerator", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  responder           User?              @relation("VendorReviewResponder", fields: [responseBy], references: [id], onDelete: SetNull)
+  responseModerator   User?              @relation("VendorReviewResponseModerator", fields: [responseReviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([vendorId, status, createdAt])
+  @@index([responseStatus, createdAt])
+}
+
+model GuideArticle {
+  id         String    @id @default(cuid())
+  slug       String    @unique
+  title      String
+  summary    String
+  body       String
+  category   String
+  status     String    @default("DRAFT")
+  isDemo     Boolean   @default(false)
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model LegalSource {
+  id           String             @id @default(cuid())
+  title        String
+  url          String?
+  jurisdiction String             @default("AO")
+  status       String             @default("UNCONFIRMED")
+  reviewedAt   DateTime?
+  requirements LegalRequirement[]
+}
+
+model LegalRequirement {
+  id                String      @id @default(cuid())
+  sourceId          String
+  title             String
+  description       String
+  applicability     String      @default("UNCONFIRMED")
+  nationalityA      String?
+  nationalityB      String?
+  province          String?
+  previousMarriageA String?
+  previousMarriageB String?
+  previousMarriage  String?
+  reviewedAt        DateTime?
+  version           Int         @default(1)
+  source            LegalSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+
+  @@index([applicability, reviewedAt])
+}
+
+model RegistryOffice {
+  id           String    @id @default(cuid())
+  name         String
+  province     String
+  municipality String?
+  address      String?
+  phone        String?
+  sourceUrl    String?
+  status       String    @default("UNCONFIRMED")
+  reviewedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([province, status])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  action     String
+  resource   String
+  resourceId String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  actor      User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([resource, resourceId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model PlatformSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+  updater   User?    @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@index([updatedBy])
+}

@@ -1,0 +1,2 @@
+ALTER TABLE "Wedding"
+ADD COLUMN "archivedAt" TIMESTAMP(3);

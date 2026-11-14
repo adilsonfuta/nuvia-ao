@@ -1,0 +1,6 @@
+'use client';
+import { useParams } from 'next/navigation';
+import { useEffect,useState } from 'react';
+import { api } from '../../lib/api';
+type Guide={title:string;summary:string;body:string;category:string;reviewedAt:string|null;isDemo:boolean};
+export default function GuidePage(){const{slug}=useParams<{slug:string}>();const[guide,setGuide]=useState<Guide|null>(null);const[error,setError]=useState('');useEffect(()=>{api<Guide>(`/guides/${slug}`).then(setGuide).catch(e=>setError(e.message));},[slug]);return <main className="catalog-page"><a className="planner-back" href="/guias">← Guias</a>{guide?<article className="guide-article"><p className="eyebrow">{guide.category}{guide.isDemo?' · Conteúdo de demonstração':''}</p><h1>{guide.title}</h1><p className="guide-summary">{guide.summary}</p>{guide.reviewedAt&&<small>Revisto em {new Intl.DateTimeFormat('pt-AO',{dateStyle:'long'}).format(new Date(guide.reviewedAt))}</small>}<div className="guide-body">{guide.body.split('\n').map((line,i)=>line?<p key={i}>{line}</p>:<br key={i}/>)}</div></article>:<section className="catalog-empty"><h2>{error||'A carregar guia…'}</h2><a className="button button-outline" href="/guias">Voltar aos guias</a></section>}</main>}

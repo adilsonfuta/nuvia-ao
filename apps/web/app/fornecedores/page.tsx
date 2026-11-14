@@ -1,0 +1,3 @@
+import VendorDirectory from './vendor-directory';
+export const metadata={title:'Fornecedores | Casar em Angola',description:'Pesquisa profissionais para o teu casamento em Angola.'};
+export default function Page(){return <main className="catalog-page"><a className="planner-back" href="/">← Início</a><header><p className="eyebrow">Profissionais para o teu dia</p><h1>Directório de fornecedores</h1><p>Pesquisa perfis por serviço e província. Os perfis de demonstração são fictícios e não representam disponibilidade, preços ou recomendações verificadas.</p><a className="button button-outline vendor-join-link" href="/fornecedores/aderir">Tens um negócio? Candidata-te ao directório →</a></header><VendorDirectory/></main>}
