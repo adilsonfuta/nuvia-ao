@@ -156,14 +156,14 @@ const ANGOLA_PROVINCES = [
   "Zaire",
 ];
 const DASHBOARD_TABS: { key: Tab; label: string }[] = [
-  { key: "events", label: "Os meus eventos" },
   { key: "overview", label: "Visão geral" },
+  { key: "events", label: "Os meus eventos" },
   { key: "planning", label: "Planeamento" },
   { key: "budget", label: "Orçamento" },
   { key: "vendors", label: "Fornecedores" },
+  { key: "program", label: "Programa" },
   { key: "guests", label: "Convidados" },
   { key: "invitation", label: "Convites digitais" },
-  { key: "program", label: "Programa" },
   { key: "team", label: "Colaboração" },
   { key: "reports", label: "Relatórios" },
   { key: "settings", label: "Definições" },
