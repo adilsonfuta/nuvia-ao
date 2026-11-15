@@ -15,6 +15,7 @@ export default function VendorDirectory() {
   const [province, setProvince] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [favoriteNotice, setFavoriteNotice] = useState('');
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [signedIn, setSignedIn] = useState(false);
   const [projectId, setProjectId] = useState('');
@@ -37,10 +38,62 @@ export default function VendorDirectory() {
     }
   }
 
-  useEffect(() => { void runSearch({ term: '', category: '', province: '' }); void api<{vendorCategories:string[];provinces:string[]}>('/catalog-config').then(config => { if(config.vendorCategories.length)setCategories(config.vendorCategories); if(config.provinces.length)setProvinces(config.provinces); }).catch(()=>undefined); const context = new URLSearchParams(window.location.search).get('projectId') || ''; setProjectId(context); void (async () => { try { await api('/auth/me'); setSignedIn(true); const saved = context ? await api<{vendor:{id:string}}[]>(`/projects/${context}/vendors/favorites`) : await api<{vendor:{id:string}}[]>('/favorites'); setFavoriteIds(new Set(saved.map(item => item.vendor.id))); } catch { setSignedIn(false); } })(); }, []);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const initial = {
+      term: url.searchParams.get('q') || '',
+      category: url.searchParams.get('category') || '',
+      province: url.searchParams.get('province') || '',
+    };
+    const context = url.searchParams.get('projectId') || '';
+    setTerm(initial.term);
+    setCategory(initial.category);
+    setProvince(initial.province);
+    setProjectId(context);
+    void runSearch(initial);
+    void api<{vendorCategories:string[];provinces:string[]}>('/catalog-config').then(config => { if(config.vendorCategories.length)setCategories(config.vendorCategories); if(config.provinces.length)setProvinces(config.provinces); }).catch(()=>undefined);
+    void (async () => {
+      try {
+        await api('/auth/me');
+      } catch {
+        setSignedIn(false);
+        return;
+      }
+      setSignedIn(true);
+      const base = context ? `/projects/${context}/vendors/favorites` : '/favorites';
+      let saved: {vendor:{id:string}}[];
+      try {
+        saved = await api<{vendor:{id:string}}[]>(base);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Não foi possível carregar os favoritos.');
+        return;
+      }
+      const savedIds = new Set(saved.map(item => item.vendor.id));
+      const pendingId = url.searchParams.get('favorite');
+      if (pendingId && !savedIds.has(pendingId)) {
+        try {
+          await api(base, { method: 'POST', body: JSON.stringify({ vendorId: pendingId }) });
+          savedIds.add(pendingId);
+          setFavoriteNotice('Fornecedor guardado nos favoritos.');
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Não foi possível guardar o fornecedor.');
+        }
+      }
+      if (pendingId && savedIds.has(pendingId)) {
+        url.searchParams.delete('favorite');
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+      }
+      setFavoriteIds(savedIds);
+    })();
+  }, []);
 
   async function toggleFavorite(vendorId: string) {
-    if (!signedIn) { window.location.href = '/entrar'; return; }
+    if (!signedIn) {
+      const next = new URL(window.location.href);
+      next.searchParams.set('favorite', vendorId);
+      window.location.href = `/entrar?next=${encodeURIComponent(`${next.pathname}${next.search}${next.hash}`)}`;
+      return;
+    }
     try { const base = projectId ? `/projects/${projectId}/vendors/favorites` : '/favorites'; if (favoriteIds.has(vendorId)) { await api(`${base}/${vendorId}`, { method: 'DELETE' }); setFavoriteIds(current => { const next = new Set(current); next.delete(vendorId); return next; }); } else { await api(base, { method: 'POST', body: JSON.stringify({ vendorId }) }); setFavoriteIds(current => new Set(current).add(vendorId)); } }
     catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível actualizar favoritos.'); }
   }
@@ -48,12 +101,29 @@ export default function VendorDirectory() {
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void runSearch({ term, category, province });
+    const url = new URL(window.location.href);
+    for (const [key, value] of [['q', term], ['category', category], ['province', province]]) {
+      if (value.trim()) url.searchParams.set(key, value.trim());
+      else url.searchParams.delete(key);
+    }
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }
 
   function clearFilters() {
     setTerm(''); setCategory(''); setProvince('');
     void runSearch({ term: '', category: '', province: '' });
+    const url = new URL(window.location.href);
+    ['q', 'category', 'province'].forEach(key => url.searchParams.delete(key));
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }
+
+  const directoryParams = new URLSearchParams();
+  if (projectId) directoryParams.set('projectId', projectId);
+  if (term.trim()) directoryParams.set('q', term.trim());
+  if (category) directoryParams.set('category', category);
+  if (province) directoryParams.set('province', province);
+  const directoryQuery = directoryParams.toString();
+  const directoryReturnPath = `/fornecedores${directoryQuery ? `?${directoryQuery}` : ''}`;
 
   return <>
     <form className="catalog-filters" onSubmit={search} aria-label="Pesquisar fornecedores">
@@ -69,6 +139,7 @@ export default function VendorDirectory() {
 
     <div className="directory-results" aria-live="polite">
       {error && <p className="form-error" role="alert">{error}</p>}
+      {favoriteNotice && <p className="quote-notice" role="status">{favoriteNotice}</p>}
       <div className="directory-results-heading"><h2>Resultados</h2>{!loading && <span>{vendors.length} {vendors.length === 1 ? 'perfil' : 'perfis'}</span>}</div>
       {projectId && <p className="vendor-project-context-note">Estás a explorar fornecedores para um evento específico. Os favoritos guardados aqui ficam associados a esse evento.</p>}
       {loading ? <p className="empty-copy">A pesquisar perfis…</p> : vendors.length ? <div className="catalog-grid">{vendors.map(vendor => <article className="vendor-card" key={vendor.id}>
@@ -80,7 +151,7 @@ export default function VendorDirectory() {
         <p>{vendor.description}</p>
         <span className="vendor-location">{[vendor.municipality, vendor.province].filter(Boolean).join(', ') || 'Localização por confirmar'}</span>
         {vendor.priceFrom && <span className="vendor-price">A partir de {formatAOA(vendor.priceFrom)}{vendor.priceTo ? ` – ${formatAOA(vendor.priceTo)}` : ''}</span>}
-        <div className="vendor-card-actions"><a href={`/fornecedores/${vendor.slug}${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`}>Ver perfil <span aria-hidden="true">→</span></a><button type="button" className={favoriteIds.has(vendor.id) ? 'favorite-button saved' : 'favorite-button'} aria-pressed={favoriteIds.has(vendor.id)} onClick={() => void toggleFavorite(vendor.id)}>{favoriteIds.has(vendor.id) ? 'Guardado' : 'Guardar'}</button></div>
+        <div className="vendor-card-actions"><a href={`/fornecedores/${vendor.slug}?${new URLSearchParams({ ...(projectId ? { projectId } : {}), returnTo: directoryReturnPath }).toString()}`}>Ver perfil <span aria-hidden="true">→</span></a><button type="button" className={favoriteIds.has(vendor.id) ? 'favorite-button saved' : 'favorite-button'} aria-pressed={favoriteIds.has(vendor.id)} onClick={() => void toggleFavorite(vendor.id)}>{favoriteIds.has(vendor.id) ? 'Guardado' : 'Guardar'}</button></div>
       </article>)}</div> : <section className="catalog-empty"><span aria-hidden="true">⌕</span><h2>{term || category || province ? 'Não encontrámos perfis com estes filtros.' : 'Ainda não há perfis publicados.'}</h2><p>{term || category || province ? 'Experimenta outra categoria, província ou pesquisa.' : 'Estamos a preparar o directório. Quando houver perfis publicados, poderás consultá-los aqui.'}</p>{(term || category || province) && <button className="button button-outline" type="button" onClick={clearFilters}>Limpar pesquisa</button>}</section>}
     </div>
     <aside className="directory-disclosure"><strong>Sobre os pedidos de informação</strong><p>Os pedidos ficam guardados na tua conta. Ainda não são enviados ao fornecedor pela plataforma. Perfis identificados como demonstração são fictícios e não representam negócios reais.</p></aside>

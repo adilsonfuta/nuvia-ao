@@ -480,7 +480,7 @@ export default function AdminConsole() {
           <p>
             É necessário entrar com uma conta de administração ou moderação.
           </p>
-          <a className="button button-primary" href="/entrar">
+          <a className="button button-primary" href="/entrar?next=%2Fadmin">
             Entrar
           </a>
         </section>

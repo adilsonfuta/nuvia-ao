@@ -51,6 +51,11 @@ export default function VendorPage() {
   const { slug } = useParams<{ slug: string }>();
   const searchParams = useSearchParams();
   const projectContext = searchParams.get("projectId") || "";
+  const requestedReturnTo = searchParams.get("returnTo") || "";
+  const directoryHref = requestedReturnTo.startsWith("/fornecedores")
+    ? requestedReturnTo
+    : `/fornecedores${projectContext ? `?projectId=${encodeURIComponent(projectContext)}` : ""}`;
+  const profileReturnPath = `/fornecedores/${slug}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [weddings, setWeddings] = useState<Wedding[]>([]);
   const [weddingId, setWeddingId] = useState("");
@@ -95,6 +100,14 @@ export default function VendorPage() {
       })
       .catch(() => setSignedIn(false));
   }, [slug, projectContext]);
+
+  useEffect(() => {
+    if (searchParams.get("intent") !== "quote") return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("pedido")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [searchParams, vendor, signedIn]);
 
   function selectWedding(id: string) {
     setWeddingId(id);
@@ -166,7 +179,7 @@ export default function VendorPage() {
       <main className="catalog-page">
         <a
           className="planner-back"
-          href={`/fornecedores${projectContext ? `?projectId=${encodeURIComponent(projectContext)}` : ""}`}
+          href={directoryHref}
         >
           ← Directório de fornecedores
         </a>
@@ -189,6 +202,10 @@ export default function VendorPage() {
     { label: "Facebook", href: vendor.facebookUrl },
     { label: "TikTok", href: vendor.tiktokUrl },
   ].filter((item): item is { label: string; href: string } => Boolean(item.href));
+  const quoteParams = new URLSearchParams({ intent: "quote" });
+  if (projectContext) quoteParams.set("projectId", projectContext);
+  quoteParams.set("returnTo", directoryHref);
+  const quoteDestination = `/fornecedores/${vendor.slug}?${quoteParams.toString()}#pedido`;
   const portfolio = [
     ...vendor.portfolio.map((item) => ({ key: item.id, src: `/api/v1/vendor-portfolio/${item.id}/image`, alt: item.altText, cover: item.isCover })),
     ...vendor.galleryUrls.map((url, index) => ({ key: `${url}-${index}`, src: url, alt: `Trabalho ${index + 1} publicado por ${vendor.name}`, cover: false })),
@@ -198,7 +215,7 @@ export default function VendorPage() {
     <main className="catalog-page vendor-profile-page">
       <a
         className="planner-back"
-        href={`/fornecedores${projectContext ? `?projectId=${encodeURIComponent(projectContext)}` : ""}`}
+        href={directoryHref}
       >
         ← Directório de fornecedores
       </a>
@@ -230,7 +247,7 @@ export default function VendorPage() {
         {socialLinks.length > 0 && <nav className="vendor-social-links" aria-label={`Links oficiais de ${vendor.name}`}>{socialLinks.map((link) => <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer">{link.label}<span aria-hidden="true">↗</span></a>)}</nav>}
         {vendor.verifiedAt && <p className="vendor-review-disclaimer">A revisão confirma informações do perfil à data da verificação; não garante disponibilidade, qualidade ou execução do serviço.</p>}
 
-        {!vendor.isDemo && !vendor.hasManager && <section className="vendor-claim-card"><div><p className="eyebrow">És o prestador?</p><h2>Gerencias este negócio?</h2><p>Pede para associar o perfil à tua conta. A equipa confirma o pedido antes de dar acesso para gerir imagens e informações.</p></div>{!signedIn ? <a className="button button-outline" href={`/entrar?next=${encodeURIComponent(`/fornecedores/${vendor.slug}`)}`}>Entrar para pedir acesso</a> : <form onSubmit={submitClaim}><label>Como podemos confirmar a tua relação com este negócio?<textarea required minLength={10} maxLength={600} value={claimMessage} onChange={e => setClaimMessage(e.target.value)} placeholder="Indica o teu papel e uma forma de confirmar que representas este prestador."/></label><button className="button button-primary" disabled={claimPending || claimMessage.trim().length < 10}>{claimPending ? "A enviar…" : "Pedir acesso ao perfil"}</button></form>}{claimNotice && <p className="vendor-claim-notice" role="status">{claimNotice}</p>}{claimError && <p className="form-error" role="alert">{claimError}</p>}</section>}
+        {!vendor.isDemo && !vendor.hasManager && <section className="vendor-claim-card"><div><p className="eyebrow">És o prestador?</p><h2>Gerencias este negócio?</h2><p>Pede para associar o perfil à tua conta. A equipa confirma o pedido antes de dar acesso para gerir imagens e informações.</p></div>{!signedIn ? <a className="button button-outline" href={`/entrar?next=${encodeURIComponent(profileReturnPath)}`}>Entrar para pedir acesso</a> : <form onSubmit={submitClaim}><label>Como podemos confirmar a tua relação com este negócio?<textarea required minLength={10} maxLength={600} value={claimMessage} onChange={e => setClaimMessage(e.target.value)} placeholder="Indica o teu papel e uma forma de confirmar que representas este prestador."/></label><button className="button button-primary" disabled={claimPending || claimMessage.trim().length < 10}>{claimPending ? "A enviar…" : "Pedir acesso ao perfil"}</button></form>}{claimNotice && <p className="vendor-claim-notice" role="status">{claimNotice}</p>}{claimError && <p className="form-error" role="alert">{claimError}</p>}</section>}
 
         {vendor.isDemo && (
           <p className="demo-disclosure">
@@ -460,10 +477,18 @@ export default function VendorPage() {
               </button>
             </form>
           ) : (
-            <p>
-              Para guardar um pedido, <a href="/entrar">entra</a> ou{" "}
-              <a href="/criar-conta">cria uma conta</a> e inicia um plano.
-            </p>
+            signedIn ? (
+              <div className="catalog-empty">
+                <h3>Cria primeiro o teu evento</h3>
+                <p>Depois podes voltar a este perfil e associar o pedido ao evento certo.</p>
+                <a className="button button-primary" href={`/dashboard?tab=eventos&returnTo=${encodeURIComponent(quoteDestination)}`}>Criar evento e continuar →</a>
+              </div>
+            ) : (
+              <p>
+                Para guardar um pedido, <a href={`/entrar?next=${encodeURIComponent(quoteDestination)}`}>entra</a> ou{" "}
+                <a href={`/criar-conta?next=${encodeURIComponent(quoteDestination)}`}>cria uma conta</a>. Depois poderás associá-lo a um evento.
+              </p>
+            )
           )}
           {preparedMessage &&
             !vendor.isDemo &&

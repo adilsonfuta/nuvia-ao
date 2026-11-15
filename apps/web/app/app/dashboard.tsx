@@ -167,6 +167,25 @@ const DASHBOARD_TABS: { key: Tab; label: string }[] = [
   { key: "reports", label: "Relatórios" },
   { key: "settings", label: "Definições" },
 ];
+const DASHBOARD_TAB_URL: Record<Tab, string> = {
+  events: "eventos",
+  overview: "resumo",
+  planning: "planeamento",
+  budget: "orcamento",
+  vendors: "fornecedores",
+  guests: "convidados",
+  invitation: "convites",
+  program: "programa",
+  team: "colaboracao",
+  reports: "relatorios",
+  settings: "definicoes",
+};
+function tabFromUrl(value: string | null): Tab | undefined {
+  if (!value) return undefined;
+  return (Object.keys(DASHBOARD_TAB_URL) as Tab[]).find(
+    (tab) => tab === value || DASHBOARD_TAB_URL[tab] === value,
+  );
+}
 const PROJECT_KINDS: {
   value: Project["kind"];
   label: string;
@@ -274,6 +293,7 @@ export default function Dashboard() {
   const [archivingProject, setArchivingProject] = useState(false);
   const [data, setData] = useState<Detail | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
+  const [navigationReady, setNavigationReady] = useState(false);
   const [settingsView, setSettingsView] = useState<"event" | "account">(
     "event",
   );
@@ -338,6 +358,10 @@ export default function Dashboard() {
   const [inviteSupportPhone, setInviteSupportPhone] = useState("");
   const [publishingInvite, setPublishingInvite] = useState(false);
   const invitationDraftProject = useRef("");
+  const skipUrlSync = useRef(false);
+  const firstUrlSync = useRef(true);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
@@ -407,13 +431,31 @@ export default function Dashboard() {
   useEffect(() => {
     (async () => {
       try {
+        const initialUrl = new URL(window.location.href);
+        const requestedTab = tabFromUrl(initialUrl.searchParams.get("tab"));
+        const requestedProjectId =
+          initialUrl.searchParams.get("event") ||
+          initialUrl.searchParams.get("projectId") ||
+          "";
+        if (requestedTab) setTab(requestedTab);
         const session = await api<{ user: User }>("/auth/me");
         setUser(session.user);
         const list = await api<Project[]>("/projects");
         setProjects(list);
+        const requestedProject = list.find(
+          (item) => item.id === requestedProjectId && !item.archivedAt,
+        );
         const activeProject = list.find((item) => !item.archivedAt);
-        if (activeProject) await loadDetail(activeProject.id);
-        else if (list.length) {
+        const planningDraft = sessionStorage.getItem("casar:planning-draft");
+        if (planningDraft) {
+          setSelected("");
+          setData(null);
+          setTab("overview");
+          applyPlanningDraft();
+          setNotice("O teu roteiro está pronto. Confirma os dados e cria o evento para o guardar.");
+        } else if (requestedProject || activeProject) {
+          await loadDetail((requestedProject || activeProject)!.id);
+        } else if (list.length) {
           setSelected("");
           setData(null);
           setTab("events");
@@ -422,9 +464,58 @@ export default function Dashboard() {
         setUser(null);
       } finally {
         setLoading(false);
+        setNavigationReady(true);
       }
     })();
   }, [loadDetail, applyPlanningDraft]);
+
+  useEffect(() => {
+    if (!navigationReady) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", DASHBOARD_TAB_URL[tab]);
+    url.searchParams.delete("projectId");
+    if (selected) url.searchParams.set("event", selected);
+    else url.searchParams.delete("event");
+    const target = `${url.pathname}${url.search}${url.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (firstUrlSync.current) {
+      firstUrlSync.current = false;
+      if (target !== current) window.history.replaceState(null, "", target);
+      return;
+    }
+    if (target === current) return;
+    if (skipUrlSync.current) return;
+    window.history.pushState(null, "", target);
+  }, [navigationReady, selected, tab]);
+
+  useEffect(() => {
+    function restoreDashboardLocation() {
+      const url = new URL(window.location.href);
+      const nextTab = tabFromUrl(url.searchParams.get("tab"));
+      const nextProjectId =
+        url.searchParams.get("event") || url.searchParams.get("projectId") || "";
+      skipUrlSync.current = true;
+      if (nextTab) setTab(nextTab);
+      if (nextProjectId && nextProjectId !== selectedRef.current) {
+        void loadDetail(nextProjectId).then(
+          () => { skipUrlSync.current = false; },
+          () => {
+            skipUrlSync.current = false;
+            setError("Não foi possível abrir o evento deste link.");
+            setTab("events");
+          },
+        );
+      } else if (!nextProjectId && selectedRef.current) {
+        setSelected("");
+        setData(null);
+        queueMicrotask(() => { skipUrlSync.current = false; });
+      } else {
+        queueMicrotask(() => { skipUrlSync.current = false; });
+      }
+    }
+    window.addEventListener("popstate", restoreDashboardLocation);
+    return () => window.removeEventListener("popstate", restoreDashboardLocation);
+  }, [loadDetail]);
   async function submitCreate(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -444,6 +535,18 @@ export default function Dashboard() {
       sessionStorage.removeItem("casar:planning-draft");
       setProjects((items) => [project, ...items]);
       await loadDetail(project.id);
+      const returnTo = new URLSearchParams(window.location.search).get("returnTo");
+      if (returnTo) {
+        const destination = new URL(returnTo, window.location.origin);
+        if (
+          destination.origin === window.location.origin &&
+          destination.pathname.startsWith("/fornecedores/")
+        ) {
+          destination.searchParams.set("projectId", project.id);
+          router.push(`${destination.pathname}${destination.search}${destination.hash}`);
+          return;
+        }
+      }
       setTab("overview");
       setNotice("Evento criado. Agora podem organizar os próximos passos.");
     } catch (e) {
@@ -1130,6 +1233,7 @@ export default function Dashboard() {
   const displayedInvitationHeadline =
     inviteHeadline.trim() || data?.title || "O nosso evento";
   const displayedInvitationMessage = inviteMessage.trim() || INVITATION_MESSAGE;
+  const signInReturnPath = `/dashboard?tab=${DASHBOARD_TAB_URL[tab]}${selected ? `&event=${encodeURIComponent(selected)}` : ""}`;
   const invitationHasChanges = savedInvitation
     ? displayedInvitationHeadline !==
         (savedInvitation.headline || data?.title) ||
@@ -1152,10 +1256,10 @@ export default function Dashboard() {
           <p className="auth-copy">
             Acede ao painel ou cria uma conta gratuita para guardar o teu plano.
           </p>
-          <a className="button button-primary" href="/entrar">
+          <a className="button button-primary" href={`/entrar?next=${encodeURIComponent(signInReturnPath)}`}>
             Entrar
           </a>
-          <a className="button button-outline" href="/criar-conta">
+          <a className="button button-outline" href={`/criar-conta?next=${encodeURIComponent(signInReturnPath)}`}>
             Criar conta
           </a>
           <a className="planner-back" href="/">
@@ -1192,7 +1296,7 @@ export default function Dashboard() {
           </a>
         )}
         <a className="sidebar-vendor-link" href="/fornecedor/gestao">
-          Área de fornecedor <span aria-hidden="true">↗</span>
+          Sou fornecedor · Gerir perfil <span aria-hidden="true">↗</span>
         </a>
         <a className="sidebar-public-link" href="/" target="_blank" rel="noreferrer">
           Ver site público <span aria-hidden="true">↗</span>
@@ -1339,6 +1443,7 @@ export default function Dashboard() {
                     type="button"
                     className="button button-outline"
                     onClick={() => {
+                      sessionStorage.removeItem("casar:planning-draft");
                       const activeProject = projects.find(
                         (project) => !project.archivedAt,
                       );

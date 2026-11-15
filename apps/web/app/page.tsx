@@ -2,8 +2,8 @@ import Image from 'next/image';
 
 const features = [
   { icon: '▤', title: 'Um primeiro roteiro', text: 'Responde a algumas perguntas e recebe uma lista inicial de próximos passos.', href: '/planear', action: 'Criar roteiro' },
-  { icon: '◷', title: 'Despesas e tarefas', text: 'Na tua área, regista despesas e acompanha as tarefas do evento.', href: '/criar-conta', action: 'Criar conta' },
-  { icon: '♙', title: 'Convidados e RSVP', text: 'Organiza convidados e partilha um convite com confirmação de presença.', href: '/criar-conta', action: 'Começar a organizar' }
+  { icon: '◷', title: 'Despesas e tarefas', text: 'Na tua área, regista despesas e acompanha as tarefas do evento.', href: '/planear', action: 'Criar roteiro' },
+  { icon: '♙', title: 'Convidados e RSVP', text: 'Organiza convidados e partilha um convite com confirmação de presença.', href: '/planear', action: 'Criar roteiro' }
 ];
 
 function Mark({ alt = 'Nuvia', priority = false }: { alt?: string; priority?: boolean }) { return <Image className="nuvia-logo" src="/brand/nuvia-logo.png" alt={alt} width={320} height={100} priority={priority} />; }
@@ -14,10 +14,15 @@ export default function Home() {
     <header className="site-header">
       <a className="brand" href="/" aria-label="Nuvia — início"><Mark alt="" priority/></a>
       <nav className="main-nav" aria-label="Navegação principal">
-        <a className="active" href="/">Início</a><a href="/planear">Planear</a><a href="/fornecedores">Fornecedores</a><a href="/casamento-civil">Casamento Civil</a>
+        <a className="active" href="/">Início</a><a href="/planear">Planear</a><a href="/fornecedores">Fornecedores</a><a href="/espacos">Espaços</a><a href="/guias">Guias</a><a href="/casamento-civil">Casamento Civil</a>
       </nav>
       <div className="header-actions"><a className="button button-outline compact" href="/entrar">Entrar</a><a className="button button-primary compact" href="/criar-conta">Criar conta</a></div>
-      <a className="mobile-menu" href="/planear" aria-label="Começar a planear">Planear <Arrow/></a>
+      <details className="mobile-nav">
+        <summary aria-label="Abrir navegação">Menu</summary>
+        <nav aria-label="Navegação principal">
+          <a href="/planear">Planear</a><a href="/fornecedores">Fornecedores</a><a href="/espacos">Espaços</a><a href="/guias">Guias</a><a href="/casamento-civil">Casamento Civil</a><a href="/entrar">Entrar</a>
+        </nav>
+      </details>
     </header>
 
     <main id="inicio">
