@@ -1,4 +1,5 @@
 import type { ProjectKind, ProjectSummary } from "@casar/contracts";
+import { formatAOA } from "../lib/format";
 
 type Project = ProjectSummary;
 
@@ -8,12 +9,6 @@ const kinds: Record<ProjectKind, { label: string; icon: string }> = {
   PARTY: { label: "Festa", icon: "✧" },
   OTHER: { label: "Outro evento", icon: "◈" },
 };
-const money = (amount: number | string) =>
-  new Intl.NumberFormat("pt-AO", {
-    style: "currency",
-    currency: "AOA",
-    maximumFractionDigits: 0,
-  }).format(Number(amount));
 const date = (value: string | null) =>
   value
     ? new Intl.DateTimeFormat("pt-AO", {
@@ -79,7 +74,7 @@ export function EventManager({
                   </span>
                 )}
                 {project.budgetLimit != null && (
-                  <span>Limite {money(project.budgetLimit)}</span>
+                  <span>Limite {formatAOA(project.budgetLimit)}</span>
                 )}
               </div>
               <footer>

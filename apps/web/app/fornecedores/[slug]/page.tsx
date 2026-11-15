@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { api } from "../../lib/api";
+import { formatAOA } from "../../lib/format";
 
 type Vendor = {
   id: string;
@@ -41,12 +42,6 @@ type Wedding = {
   province: string | null;
   guestEstimate: number | null;
 };
-const money = (value: string) =>
-  new Intl.NumberFormat("pt-AO", {
-    style: "currency",
-    currency: "AOA",
-    maximumFractionDigits: 0,
-  }).format(Number(value));
 const whatsAppNumber = (phone: string) => {
   const digits = phone.replace(/\D/g, "").replace(/^00/, "");
   return digits.startsWith("244") ? digits : `244${digits.replace(/^0/, "")}`;
@@ -293,11 +288,11 @@ export default function VendorPage() {
             <small>Preço publicado</small>
             <strong>
               {vendor.priceFrom && vendor.priceTo
-                ? `${money(vendor.priceFrom)} – ${money(vendor.priceTo)}`
+                ? `${formatAOA(vendor.priceFrom)} – ${formatAOA(vendor.priceTo)}`
                 : vendor.priceFrom
-                  ? `A partir de ${money(vendor.priceFrom)}`
+                  ? `A partir de ${formatAOA(vendor.priceFrom)}`
                   : vendor.priceTo
-                    ? `Até ${money(vendor.priceTo)}`
+                    ? `Até ${formatAOA(vendor.priceTo)}`
                     : "Pedir informação"}
             </strong>
             {(vendor.priceFrom || vendor.priceTo) && (

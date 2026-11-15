@@ -1,16 +1,18 @@
+import Image from 'next/image';
+
 const features = [
   { icon: '▤', title: 'Um primeiro roteiro', text: 'Responde a algumas perguntas e recebe uma lista inicial de próximos passos.', href: '/planear', action: 'Criar roteiro' },
   { icon: '◷', title: 'Despesas e tarefas', text: 'Na tua área, regista despesas e acompanha as tarefas do evento.', href: '/criar-conta', action: 'Criar conta' },
   { icon: '♙', title: 'Convidados e RSVP', text: 'Organiza convidados e partilha um convite com confirmação de presença.', href: '/criar-conta', action: 'Começar a organizar' }
 ];
 
-function Mark() { return <span className="brand-mark" aria-hidden="true">♡</span>; }
+function Mark({ alt = 'Nuvia', priority = false }: { alt?: string; priority?: boolean }) { return <Image className="nuvia-logo" src="/brand/nuvia-logo.png" alt={alt} width={320} height={100} priority={priority} />; }
 function Arrow() { return <span aria-hidden="true">→</span>; }
 
 export default function Home() {
   return <>
     <header className="site-header">
-      <a className="brand" href="/" aria-label="Casar em Angola — início"><Mark/><span><strong>Casar em Angola</strong><small>Planeamento · Documentação · Fornecedores</small></span></a>
+      <a className="brand" href="/" aria-label="Nuvia — início"><Mark alt="" priority/></a>
       <nav className="main-nav" aria-label="Navegação principal">
         <a className="active" href="/">Início</a><a href="/planear">Planear</a><a href="/fornecedores">Fornecedores</a><a href="/casamento-civil">Casamento Civil</a>
       </nav>
@@ -47,6 +49,6 @@ export default function Home() {
 
       <section className="bottom-cta" id="planear"><div><p className="eyebrow">Começa sem compromisso</p><h2>O próximo passo pode ser simples.</h2><p>Prepara um roteiro inicial e decide depois o que queres guardar e organizar.</p></div><a href="/planear" className="button button-primary">Começar o roteiro <Arrow/></a></section>
     </main>
-    <footer className="site-footer"><a className="brand footer-brand" href="/"><Mark/><span><strong>Casar em Angola</strong><small>Planeamento · Documentação · Fornecedores</small></span></a><p>Feito para acompanhar a vossa história.</p><small>© {new Date().getFullYear()} Casar em Angola</small></footer>
+    <footer className="site-footer"><a className="brand footer-brand" href="/"><Mark/></a><p>Feito para acompanhar cada celebração.</p><small>© {new Date().getFullYear()} Nuvia</small></footer>
   </>;
 }

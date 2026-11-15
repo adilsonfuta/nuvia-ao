@@ -1,6 +1,6 @@
 import Dashboard from "../app/dashboard";
 
-export const metadata = { title: "Dashboard | Casar em Angola" };
+export const metadata = { title: "Dashboard | Nuvia" };
 
 export default function DashboardPage() {
   return <Dashboard />;

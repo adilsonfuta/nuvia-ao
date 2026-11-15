@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { formatAOA } from '../lib/format';
 
 type Vendor = { id: string; slug: string; name: string; category: string; description: string | null; province: string | null; municipality: string | null; priceFrom: string | null; priceTo: string | null; verifiedAt: string | null; isDemo: boolean };
 const defaultCategories = ['Catering', 'Decoração', 'Fotografia e vídeo', 'Música e DJ', 'Beleza', 'Transportes', 'Bolos e doces', 'Organização', 'Espaços'];
@@ -78,7 +79,7 @@ export default function VendorDirectory() {
         <h3>{vendor.name}</h3>
         <p>{vendor.description}</p>
         <span className="vendor-location">{[vendor.municipality, vendor.province].filter(Boolean).join(', ') || 'Localização por confirmar'}</span>
-        {vendor.priceFrom && <span className="vendor-price">A partir de {vendor.priceFrom}{vendor.priceTo ? ` – ${vendor.priceTo}` : ''} Kz</span>}
+        {vendor.priceFrom && <span className="vendor-price">A partir de {formatAOA(vendor.priceFrom)}{vendor.priceTo ? ` – ${formatAOA(vendor.priceTo)}` : ''}</span>}
         <div className="vendor-card-actions"><a href={`/fornecedores/${vendor.slug}${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`}>Ver perfil <span aria-hidden="true">→</span></a><button type="button" className={favoriteIds.has(vendor.id) ? 'favorite-button saved' : 'favorite-button'} aria-pressed={favoriteIds.has(vendor.id)} onClick={() => void toggleFavorite(vendor.id)}>{favoriteIds.has(vendor.id) ? 'Guardado' : 'Guardar'}</button></div>
       </article>)}</div> : <section className="catalog-empty"><span aria-hidden="true">⌕</span><h2>{term || category || province ? 'Não encontrámos perfis com estes filtros.' : 'Ainda não há perfis publicados.'}</h2><p>{term || category || province ? 'Experimenta outra categoria, província ou pesquisa.' : 'Estamos a preparar o directório. Quando houver perfis publicados, poderás consultá-los aqui.'}</p>{(term || category || province) && <button className="button button-outline" type="button" onClick={clearFilters}>Limpar pesquisa</button>}</section>}
     </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent } from 'react';
+import { formatAOA } from '../lib/format';
 
 export type BudgetExpense = {
   id: string;
@@ -15,7 +16,6 @@ export type BudgetExpense = {
 };
 
 const categories = ['Espaço','Catering','Decoração','Fotografia e vídeo','Música','Roupa e beleza','Transporte','Convites','Documentação','Outros'];
-const money = (value: number) => new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(value);
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Africa/Luanda', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const displayDate = (value: string) => new Intl.DateTimeFormat('pt-AO', { dateStyle: 'medium', timeZone: 'Africa/Luanda' }).format(new Date(value));
 const statusLabels = { ESTIMATED: 'Prevista', COMMITTED: 'Contratada', PAID: 'Paga' };
@@ -58,22 +58,22 @@ export function BudgetPanel({
 
   return <div className="budget-module">
     <section className={`budget-summary ${balance !== null && balance < 0 ? 'over-budget' : ''}`} aria-label="Resumo do orçamento">
-      <div className="budget-summary-heading"><div><p className="eyebrow">Controlo financeiro</p><h2>Resumo do orçamento</h2></div>{balance !== null && balance < 0 && <span className="budget-alert" role="status">Previsão acima do limite em {money(Math.abs(balance))}</span>}</div>
+      <div className="budget-summary-heading"><div><p className="eyebrow">Controlo financeiro</p><h2>Resumo do orçamento</h2></div>{balance !== null && balance < 0 && <span className="budget-alert" role="status">Previsão acima do limite em {formatAOA(Math.abs(balance))}</span>}</div>
       <div className="budget-summary-grid">
-        <article><small>Limite do evento</small><strong>{limitValue === null ? 'Por definir' : money(limitValue)}{limitValue === null && <button type="button" className="budget-define-link" onClick={onSetLimit}>Definir limite</button>}</strong></article>
-        <article><small>Estimado</small><strong>{money(totals.estimated)}</strong></article>
-        <article><small>Contratado</small><strong>{money(totals.committed)}</strong></article>
-        <article><small>Pago</small><strong>{money(totals.paid)}</strong></article>
-        <article className="budget-balance"><small>{balance !== null && balance < 0 ? 'Previsão acima do limite' : 'Saldo após despesas registadas'}</small><strong>{balance === null ? 'Define um limite' : money(balance)}</strong></article>
+        <article><small>Limite do evento</small><strong>{limitValue === null ? 'Por definir' : formatAOA(limitValue)}{limitValue === null && <button type="button" className="budget-define-link" onClick={onSetLimit}>Definir limite</button>}</strong></article>
+        <article><small>Estimado</small><strong>{formatAOA(totals.estimated)}</strong></article>
+        <article><small>Contratado</small><strong>{formatAOA(totals.committed)}</strong></article>
+        <article><small>Pago</small><strong>{formatAOA(totals.paid)}</strong></article>
+        <article className="budget-balance"><small>{balance !== null && balance < 0 ? 'Previsão acima do limite' : 'Saldo após despesas registadas'}</small><strong>{balance === null ? 'Define um limite' : formatAOA(balance)}</strong></article>
       </div>
-      {limitValue !== null && <div className="budget-progress-block"><div><span>Total das despesas registadas</span><strong>{money(totalRegistered)} · {progress}% do limite</strong></div><div className="budget-progress" role="progressbar" aria-label="Despesas registadas face ao limite do orçamento" aria-valuemin={0} aria-valuemax={limitValue || 1} aria-valuenow={Math.min(totalRegistered, limitValue || 1)}><span style={{ width: `${progress}%` }}/></div></div>}
+      {limitValue !== null && <div className="budget-progress-block"><div><span>Total das despesas registadas</span><strong>{formatAOA(totalRegistered)} · {progress}% do limite</strong></div><div className="budget-progress" role="progressbar" aria-label="Despesas registadas face ao limite do orçamento" aria-valuemin={0} aria-valuemax={limitValue || 1} aria-valuenow={Math.min(totalRegistered, limitValue || 1)}><span style={{ width: `${progress}%` }}/></div></div>}
     </section>
 
     <section className="budget-category-panel" aria-labelledby="budget-categories-title">
       <div className="budget-section-heading"><div><p className="eyebrow">Onde está o dinheiro</p><h3 id="budget-categories-title">Despesas por categoria</h3></div><div className="budget-legend"><span><i className="estimated-key"/>Estimado</span><span><i className="spent-key"/>Contratado ou pago</span></div></div>
       {Array.from(totals.byCategory.entries()).sort((a, b) => (b[1].estimated + b[1].spent) - (a[1].estimated + a[1].spent)).map(([name, item]) => <article className="budget-category-row" key={name}>
-        <div className="budget-category-label"><strong>{name}</strong><small>Estimado {money(item.estimated)} <span>·</span> Contratado/pago {money(item.spent)}</small></div>
-        <div className="budget-category-bars" aria-label={`${name}: estimado ${money(item.estimated)}, contratado ou pago ${money(item.spent)}`}><span className="estimated-bar" style={{ width: `${item.estimated / maxCategoryValue * 100}%` }}/><span className="spent-bar" style={{ width: `${item.spent / maxCategoryValue * 100}%` }}/></div>
+        <div className="budget-category-label"><strong>{name}</strong><small>Estimado {formatAOA(item.estimated)} <span>·</span> Contratado/pago {formatAOA(item.spent)}</small></div>
+        <div className="budget-category-bars" aria-label={`${name}: estimado ${formatAOA(item.estimated)}, contratado ou pago ${formatAOA(item.spent)}`}><span className="estimated-bar" style={{ width: `${item.estimated / maxCategoryValue * 100}%` }}/><span className="spent-bar" style={{ width: `${item.spent / maxCategoryValue * 100}%` }}/></div>
       </article>)}
       {!totals.byCategory.size && <p className="empty-copy">Regista despesas para comparar estimativas com valores contratados ou pagos.</p>}
     </section>
@@ -94,13 +94,13 @@ export function BudgetPanel({
           <td data-label="Despesa"><strong>{expense.title}</strong>{expense.quoteRequest && <small className="budget-vendor-line">Fornecedor: {expense.quoteRequest.vendor.name}</small>}</td><td data-label="Categoria">{expense.category}</td>
           <td data-label="Estado"><span className={`expense-status ${expense.status.toLowerCase()}`}>{statusLabels[expense.status]}</span></td>
           <td data-label="Prazo">{expense.dueAt ? <span className={overdue(expense) ? 'expense-overdue' : ''}>{displayDate(expense.dueAt)}{overdue(expense) && <small>Atrasada</small>}</span> : '—'}</td>
-          <td data-label="Valor" className="expense-amount">{money(Number(expense.amount))}</td>
+          <td data-label="Valor" className="expense-amount">{formatAOA(Number(expense.amount))}</td>
           <td data-label="Tarefa">{expense.task ? <button type="button" className="budget-task-link" onClick={() => onOpenTask(expense.task!.id)}>{expense.task.title} ↗</button> : '—'}</td>
           <td data-label="Acções"><div className="budget-row-actions"><button type="button" onClick={() => onEdit(expense)}>Editar</button><button type="button" onClick={() => onDelete(expense.id)}>Remover</button></div></td>
         </tr>)}</tbody></table></div>
         <div className="budget-expense-cards">{expenses.map((expense) => <article className="budget-expense-card" key={expense.id}>
           <header><strong>{expense.title}</strong><span className={`expense-status ${expense.status.toLowerCase()}`}>{statusLabels[expense.status]}</span></header>
-          <div className="budget-expense-card-meta"><span>{expense.category}</span><strong>{money(Number(expense.amount))}</strong></div>
+          <div className="budget-expense-card-meta"><span>{expense.category}</span><strong>{formatAOA(Number(expense.amount))}</strong></div>
           {expense.quoteRequest && <p className="budget-vendor-line">Fornecedor: {expense.quoteRequest.vendor.name}</p>}
           {expense.dueAt && <p className={overdue(expense) ? 'expense-overdue' : ''}>Prazo: {displayDate(expense.dueAt)}{overdue(expense) && ' · Atrasada'}</p>}
           {expense.task && <button type="button" className="budget-task-link" onClick={() => onOpenTask(expense.task!.id)}>Tarefa: {expense.task.title} ↗</button>}

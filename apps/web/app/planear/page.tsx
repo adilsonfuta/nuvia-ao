@@ -1,6 +1,6 @@
 import Planner from './planner';
 
-export const metadata = { title: 'Começar um projecto | Casar em Angola' };
+export const metadata = { title: 'Começar um projecto | Nuvia' };
 
 export default function PlanearPage() {
   return <main className="planner-page">

@@ -1,5 +1,5 @@
-import { Body, createParamDecorator, ExecutionContext, Injectable, Post, Req, Res, UnauthorizedException, ForbiddenException, UseGuards, Controller, Get, ConflictException, Delete, BadRequestException } from '@nestjs/common';
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { Body, createParamDecorator, ExecutionContext, Injectable, Post, Req, Res, UnauthorizedException, ForbiddenException, UseGuards, Controller, Get, ConflictException, Delete, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 import { compare, hash } from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
@@ -16,6 +16,8 @@ export class LoginDto {
 }
 export class ChangePasswordDto { @IsString() @MinLength(8) currentPassword!:string; @IsString() @MinLength(8) newPassword!:string }
 export class DeleteAccountDto { @IsString() @MinLength(8) password!:string; @IsString() @MinLength(8) confirmation!:string }
+export class PasswordResetRequestDto { @IsEmail() @MaxLength(180) email!: string }
+export class PasswordResetDto { @IsString() @MinLength(32) @MaxLength(128) token!: string; @IsString() @MinLength(8) @MaxLength(128) newPassword!: string }
 export interface SessionUser { id: string; email: string; name: string | null }
 const tokenHash=(token:string)=>createHash('sha256').update(token).digest('hex');
 const sessionToken=(request:Request)=>request.headers.cookie?.split(';').map((part)=>part.trim()).find((part)=>part.startsWith('casar_session='))?.slice('casar_session='.length);
@@ -76,6 +78,54 @@ export class AuthController {
     const user = await this.db.user.findUnique({ where: { email: body.email.trim().toLowerCase() } });
     if (!user || !(await compare(body.password, user.passwordHash))) throw new UnauthorizedException('Email ou palavra-passe incorrectos.');
     return this.issue({ id: user.id, email: user.email, name: user.name }, response);
+  }
+
+  @Post('password-reset/request')
+  async requestPasswordReset(@Body() body: PasswordResetRequestDto) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ServiceUnavailableException('A recuperação por email ainda não está configurada. Contacta o suporte.');
+    }
+    const message = 'Se existir uma conta associada a este email, poderás redefinir a palavra-passe através do link de recuperação.';
+    const email = body.email.trim().toLowerCase();
+    const user = await this.db.user.findUnique({ where: { email }, select: { id: true } });
+    if (!user) return { message };
+
+    const now = new Date();
+    const recentToken = await this.db.passwordResetToken.findFirst({
+      where: { userId: user.id, usedAt: null, expiresAt: { gt: now }, createdAt: { gt: new Date(now.getTime() - 60_000) } },
+      select: { id: true },
+    });
+    if (recentToken) return { message };
+
+    const token = randomBytes(32).toString('base64url');
+    await this.db.passwordResetToken.deleteMany({ where: { userId: user.id } });
+    await this.db.passwordResetToken.create({
+      data: { userId: user.id, tokenHash: tokenHash(token), expiresAt: new Date(now.getTime() + 30 * 60_000) },
+    });
+    const origin = (process.env.WEB_ORIGIN || 'http://localhost:3000').replace(/\/$/, '');
+    return { message, devResetUrl: `${origin}/repor-senha?token=${encodeURIComponent(token)}` };
+  }
+
+  @Post('password-reset/reset')
+  async resetPassword(@Body() body: PasswordResetDto) {
+    const now = new Date();
+    const hashedToken = tokenHash(body.token);
+    const passwordHash = await hash(body.newPassword, 12);
+    await this.db.$transaction(async (tx) => {
+      const resetToken = await tx.passwordResetToken.findUnique({ where: { tokenHash: hashedToken } });
+      if (!resetToken || resetToken.usedAt || resetToken.expiresAt <= now) {
+        throw new BadRequestException('Este link já não é válido. Pede um novo link de recuperação.');
+      }
+      const claimed = await tx.passwordResetToken.updateMany({
+        where: { id: resetToken.id, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      if (claimed.count !== 1) throw new BadRequestException('Este link já foi utilizado. Pede um novo link de recuperação.');
+      await tx.user.update({ where: { id: resetToken.userId }, data: { passwordHash } });
+      await tx.session.deleteMany({ where: { userId: resetToken.userId } });
+      await tx.passwordResetToken.deleteMany({ where: { userId: resetToken.userId, id: { not: resetToken.id } } });
+    });
+    return { message: 'Palavra-passe alterada. Já podes entrar com a nova palavra-passe.' };
   }
 
   @Post('logout')

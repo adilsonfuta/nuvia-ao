@@ -35,6 +35,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   Max,
   MaxLength,
   Min,
@@ -119,12 +120,20 @@ class CreateEventDto {
   @IsString() @MinLength(2) title!: string;
   @IsOptional() @IsDateString() startsAt?: string;
   @IsOptional() @IsString() venue?: string;
+  @IsOptional() @IsString() @MaxLength(350) address?: string;
+  @IsOptional() @IsUrl({ require_protocol: true, protocols: ["http", "https"] }) @MaxLength(500) mapsUrl?: string;
+  @IsOptional() @IsString() @MaxLength(800) guestNotes?: string;
+  @IsOptional() @IsBoolean() showToGuests?: boolean;
 }
 class UpdateEventDto {
   @IsOptional() @IsEnum(EventType) type?: EventType;
   @IsOptional() @IsString() @MinLength(2) title?: string;
   @IsOptional() @IsDateString() startsAt?: string | null;
   @IsOptional() @IsString() venue?: string | null;
+  @IsOptional() @IsString() @MaxLength(350) address?: string | null;
+  @IsOptional() @IsUrl({ require_protocol: true, protocols: ["http", "https"] }) @MaxLength(500) mapsUrl?: string | null;
+  @IsOptional() @IsString() @MaxLength(800) guestNotes?: string | null;
+  @IsOptional() @IsBoolean() showToGuests?: boolean;
 }
 class CreateExpenseDto {
   @IsString() @MinLength(2) title!: string;
@@ -211,6 +220,10 @@ class CreateInvitationDto {
   @IsOptional() @IsString() @MaxLength(140) headline?: string;
   @IsOptional() @IsString() @MaxLength(2000) message?: string;
   @IsOptional() @IsEnum(InvitationTheme) theme?: InvitationTheme;
+  @IsOptional() @IsString() @MaxLength(1200) publicNotes?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) dressCode?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) supportContactName?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) supportContactPhone?: string | null;
 }
 class AddMemberDto {
   @IsString() email!: string;
@@ -968,6 +981,10 @@ export class ProjectsController {
           headline: body.headline,
           message: body.message,
           theme: body.theme ?? InvitationTheme.CLASSIC,
+          publicNotes: body.publicNotes,
+          dressCode: body.dressCode,
+          supportContactName: body.supportContactName,
+          supportContactPhone: body.supportContactPhone,
           isPublic: true,
         },
       });
@@ -978,6 +995,10 @@ export class ProjectsController {
         headline: body.headline,
         message: body.message,
         theme: body.theme ?? InvitationTheme.CLASSIC,
+        publicNotes: body.publicNotes,
+        dressCode: body.dressCode,
+        supportContactName: body.supportContactName,
+        supportContactPhone: body.supportContactPhone,
         isPublic: true,
       },
     });
@@ -1217,7 +1238,20 @@ export class PublicInvitationController {
             kind: true,
             date: true,
             province: true,
-            events: { orderBy: { startsAt: "asc" } },
+            events: {
+              where: { showToGuests: true },
+              orderBy: { startsAt: "asc" },
+              select: {
+                id: true,
+                title: true,
+                type: true,
+                startsAt: true,
+                venue: true,
+                address: true,
+                mapsUrl: true,
+                guestNotes: true,
+              },
+            },
           },
         },
       },
@@ -1231,6 +1265,7 @@ export class PublicInvitationController {
             name: true,
             projectId: true,
             maxPartySize: true,
+            seatingTable: { select: { name: true } },
             rsvps: { where: { eventKey: "all" } },
           },
         })
@@ -1242,6 +1277,7 @@ export class PublicInvitationController {
           ? {
               name: guest.name,
               maxPartySize: guest.maxPartySize,
+              tableName: guest.seatingTable?.name ?? null,
               rsvp: guest.rsvps[0] ?? null,
             }
           : null,

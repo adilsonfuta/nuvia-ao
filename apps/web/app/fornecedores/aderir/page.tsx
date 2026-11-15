@@ -1,9 +1,9 @@
 import VendorApplicationForm from "./vendor-application-form";
 
 export const metadata = {
-  title: "Cria o perfil do teu serviço | Casar em Angola",
+  title: "Cria o perfil do teu serviço | Nuvia",
   description:
-    "Candidata o teu negócio para integrar o directório de fornecedores da Casar em Angola.",
+    "Cria um perfil profissional na Nuvia e apresenta os teus serviços para eventos em Angola.",
 };
 
 export default function VendorApplicationPage() {

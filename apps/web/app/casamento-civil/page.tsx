@@ -1,6 +1,6 @@
 import LegalAssistant from './legal-assistant';
 
-export const metadata = { title: 'Casamento civil em Angola | Casar em Angola' };
+export const metadata = { title: 'Casamento civil em Angola | Nuvia' };
 
 export default function CasamentoCivilPage() {
   return <main className="legal-page"><a className="planner-back" href="/">← Voltar ao início</a><article className="legal-card legal-page-card">

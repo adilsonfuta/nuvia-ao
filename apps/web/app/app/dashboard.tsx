@@ -1,7 +1,9 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { api } from "../lib/api";
+import { formatAOA } from "../lib/format";
 import {
   luandaDateInput,
   luandaDateTimeInput,
@@ -55,6 +57,10 @@ type Invite = {
   headline: string | null;
   message: string | null;
   theme: "CLASSIC" | "BOTANICAL" | "TERRACOTTA";
+  publicNotes: string | null;
+  dressCode: string | null;
+  supportContactName: string | null;
+  supportContactPhone: string | null;
 };
 type InvitationTheme = Invite["theme"];
 const INVITATION_MESSAGE = "Será uma alegria celebrar este momento contigo.";
@@ -92,6 +98,10 @@ type Detail = Project & {
     type: string;
     startsAt: string | null;
     venue: string | null;
+    address: string | null;
+    mapsUrl: string | null;
+    guestNotes: string | null;
+    showToGuests: boolean;
   }[];
   members: {
     role: string;
@@ -222,12 +232,6 @@ const TASK_CATEGORIES = Array.from(
     "Outro",
   ]),
 );
-const money = (amount: number | string) =>
-  new Intl.NumberFormat("pt-AO", {
-    style: "currency",
-    currency: "AOA",
-    maximumFractionDigits: 0,
-  }).format(Number(amount));
 const date = (value: string | null) =>
   value
     ? new Intl.DateTimeFormat("pt-AO", {
@@ -304,6 +308,10 @@ export default function Dashboard() {
   const [editingEventId, setEditingEventId] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [eventVenue, setEventVenue] = useState("");
+  const [eventAddress, setEventAddress] = useState("");
+  const [eventMapsUrl, setEventMapsUrl] = useState("");
+  const [eventGuestNotes, setEventGuestNotes] = useState("");
+  const [eventShowToGuests, setEventShowToGuests] = useState(true);
   const [programView, setProgramView] = useState<"moments" | "deadlines">(
     "moments",
   );
@@ -324,6 +332,10 @@ export default function Dashboard() {
   const [inviteHeadline, setInviteHeadline] = useState("");
   const [inviteMessage, setInviteMessage] = useState("");
   const [inviteTheme, setInviteTheme] = useState<InvitationTheme>("CLASSIC");
+  const [invitePublicNotes, setInvitePublicNotes] = useState("");
+  const [inviteDressCode, setInviteDressCode] = useState("");
+  const [inviteSupportName, setInviteSupportName] = useState("");
+  const [inviteSupportPhone, setInviteSupportPhone] = useState("");
   const [publishingInvite, setPublishingInvite] = useState(false);
   const invitationDraftProject = useRef("");
   const [oldPassword, setOldPassword] = useState("");
@@ -342,6 +354,10 @@ export default function Dashboard() {
       setInviteHeadline(savedInvite?.headline || detail.title);
       setInviteMessage(savedInvite?.message || INVITATION_MESSAGE);
       setInviteTheme(savedInvite?.theme || "CLASSIC");
+      setInvitePublicNotes(savedInvite?.publicNotes || "");
+      setInviteDressCode(savedInvite?.dressCode || "");
+      setInviteSupportName(savedInvite?.supportContactName || "");
+      setInviteSupportPhone(savedInvite?.supportContactPhone || "");
       invitationDraftProject.current = id;
     }
     setData(detail);
@@ -573,6 +589,10 @@ export default function Dashboard() {
     setEventType("CIVIL");
     setEventDate("");
     setEventVenue("");
+    setEventAddress("");
+    setEventMapsUrl("");
+    setEventGuestNotes("");
+    setEventShowToGuests(true);
     setShowEventForm(false);
   }
   async function deleteTask(taskId: string) {
@@ -594,6 +614,10 @@ export default function Dashboard() {
         title: eventTitle,
         startsAt: eventDate ? luandaDateTimeToIso(eventDate) : null,
         venue: eventVenue || null,
+        address: eventAddress || null,
+        mapsUrl: eventMapsUrl || null,
+        guestNotes: eventGuestNotes || null,
+        showToGuests: eventShowToGuests,
       };
       await api(
         `/projects/${selected}/events${editingEventId ? `/${editingEventId}` : ""}`,
@@ -620,6 +644,10 @@ export default function Dashboard() {
     setEventType(item.type);
     setEventDate(luandaDateTimeInput(item.startsAt));
     setEventVenue(item.venue || "");
+    setEventAddress(item.address || "");
+    setEventMapsUrl(item.mapsUrl || "");
+    setEventGuestNotes(item.guestNotes || "");
+    setEventShowToGuests(item.showToGuests);
   }
   async function deleteEvent(eventId: string) {
     if (!window.confirm("Eliminar este momento do programa?")) return;
@@ -885,6 +913,10 @@ export default function Dashboard() {
           headline: inviteHeadline.trim() || data?.title,
           message: inviteMessage.trim() || INVITATION_MESSAGE,
           theme: inviteTheme,
+          publicNotes: invitePublicNotes.trim() || null,
+          dressCode: inviteDressCode.trim() || null,
+          supportContactName: inviteSupportName.trim() || null,
+          supportContactPhone: inviteSupportPhone.trim() || null,
         }),
       });
       await loadDetail(selected);
@@ -954,7 +986,7 @@ export default function Dashboard() {
       );
       const link = document.createElement("a");
       link.href = url;
-      link.download = "casar-em-angola-dados.json";
+      link.download = "nuvia-dados.json";
       link.click();
       URL.revokeObjectURL(url);
       setError("");
@@ -1104,6 +1136,10 @@ export default function Dashboard() {
       displayedInvitationMessage !==
         (savedInvitation.message || INVITATION_MESSAGE) ||
       inviteTheme !== (savedInvitation.theme || "CLASSIC")
+      || invitePublicNotes.trim() !== (savedInvitation.publicNotes || "")
+      || inviteDressCode.trim() !== (savedInvitation.dressCode || "")
+      || inviteSupportName.trim() !== (savedInvitation.supportContactName || "")
+      || inviteSupportPhone.trim() !== (savedInvitation.supportContactPhone || "")
     : false;
   if (loading)
     return <main className="dashboard-loading">A preparar o teu espaço…</main>;
@@ -1131,43 +1167,9 @@ export default function Dashboard() {
   return (
     <main className="dashboard-layout">
       <aside className="dashboard-sidebar">
-        <a className="brand dashboard-brand" href="/dashboard" aria-label="Casar em Angola — voltar à dashboard">
-          <span className="brand-mark">♡</span>
-          <span>
-            <strong>Casar em Angola</strong>
-            <small>O vosso espaço</small>
-          </span>
+        <a className="brand dashboard-brand" href="/dashboard" aria-label="Nuvia — voltar à dashboard">
+          <Image className="nuvia-dashboard-logo" src="/brand/nuvia-logo.png" alt="Nuvia" width={240} height={75} priority />
         </a>
-        <div className="sidebar-wedding">
-          <small>Evento activo</small>
-          {data ? (
-            <>
-              <span className={`project-kind-badge ${data.kind}`}>
-                <i aria-hidden="true">{projectKindIcon(data.kind)}</i>
-                {projectKindLabel(data.kind)}
-              </span>
-              <strong>{data.title}</strong>
-              <span>{date(data.date)}</span>
-              {projects.length > 1 && (
-                <select
-                  className="sidebar-event-select"
-                  aria-label="Mudar de evento"
-                  value={selected}
-                  onChange={(e) => void openProject(e.target.value)}
-                >
-                  {projects.map((project) => (
-                    <option value={project.id} key={project.id}>
-                      {projectKindLabel(project.kind)} · {project.title} ·{" "}
-                      {date(project.date)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </>
-          ) : (
-            <strong>Novo projecto</strong>
-          )}
-        </div>
         <nav aria-label="Navegação do projecto">
           {DASHBOARD_TABS.filter(
             (item) => item.key !== "events" || projects.length > 0,
@@ -1420,10 +1422,10 @@ export default function Dashboard() {
                         </div>
                         <strong>
                           {data.budgetLimit !== null
-                            ? money(data.budgetLimit)
+                            ? formatAOA(data.budgetLimit)
                             : "Por definir"}
                         </strong>
-                        <span>{money(data.metrics.totalPaid)} pagos</span>
+                        <span>{formatAOA(data.metrics.totalPaid)} pagos</span>
                       </article>
                       <article className="metric-card metric-guests">
                         <div className="metric-card-label">
@@ -1476,10 +1478,10 @@ export default function Dashboard() {
                         <div className="metric-card-label">
                           <small>Despesas contratadas ou pagas</small>
                         </div>
-                        <strong>{money(data.metrics.totalCommitted)}</strong>
+                        <strong>{formatAOA(data.metrics.totalCommitted)}</strong>
                         <span>
-                          {money(data.metrics.totalPaid)} pagos ·{" "}
-                          {money(
+                          {formatAOA(data.metrics.totalPaid)} pagos ·{" "}
+                          {formatAOA(
                             data.metrics.totalCommitted -
                               data.metrics.totalPaid,
                           )}{" "}
@@ -1979,9 +1981,9 @@ export default function Dashboard() {
                     <div className="panel-title">
                       <div>
                         <p className="eyebrow">Partilha com quem importa</p>
-                        <h2>Convite digital</h2>
+                        <h2>Convite e Guia do Convidado</h2>
                         <p className="empty-copy">
-                          Edita o convite e vê como ficará antes de o publicar.
+                          Prepara a página partilhável com o convite, o programa, os locais e as informações úteis.
                         </p>
                       </div>
                     </div>
@@ -2037,6 +2039,51 @@ export default function Dashboard() {
                             />
                           </label>
                         </div>
+                        <fieldset className="guest-guide-fields">
+                          <legend>Informações para os convidados</legend>
+                          <p>Estas informações aparecem no link geral. Não coloques aqui notas privadas da equipa.</p>
+                          <label>
+                            Traje recomendado
+                            <input
+                              maxLength={120}
+                              value={inviteDressCode}
+                              onChange={(e) => setInviteDressCode(e.target.value)}
+                              placeholder="Ex.: traje formal em tons claros"
+                            />
+                          </label>
+                          <label>
+                            Nota dos anfitriões
+                            <textarea
+                              rows={3}
+                              maxLength={1200}
+                              value={invitePublicNotes}
+                              onChange={(e) => setInvitePublicNotes(e.target.value)}
+                              placeholder="Informações úteis sobre chegada, estacionamento ou detalhes da celebração."
+                            />
+                          </label>
+                          <div className="guest-guide-contact-fields">
+                            <label>
+                              Contacto de apoio no dia
+                              <input
+                                maxLength={120}
+                                value={inviteSupportName}
+                                onChange={(e) => setInviteSupportName(e.target.value)}
+                                placeholder="Nome da pessoa de apoio"
+                              />
+                            </label>
+                            <label>
+                              Telefone de apoio
+                              <input
+                                type="tel"
+                                maxLength={40}
+                                value={inviteSupportPhone}
+                                onChange={(e) => setInviteSupportPhone(e.target.value)}
+                                placeholder="+244 ..."
+                              />
+                            </label>
+                          </div>
+                          <small className="guest-guide-privacy-hint">O contacto só será partilhado depois de publicares as alterações.</small>
+                        </fieldset>
                         <fieldset className="invite-theme-picker">
                           <legend>Estilo do convite</legend>
                           <div>
@@ -2139,16 +2186,26 @@ export default function Dashboard() {
                             <p className="invitation-date">{date(data.date)}</p>
                           )}
                           {data.province && <p>{data.province}</p>}
-                          {data.events.slice(0, 3).map((event) => (
+                          {data.events.filter((event) => event.showToGuests).slice(0, 3).map((event) => (
                             <div className="invitation-event" key={event.id}>
                               <strong>{event.title}</strong>
                               <span>{eventDateTime(event.startsAt)}</span>
                               {event.venue && <span>{event.venue}</span>}
+                              {event.address && <span>{event.address}</span>}
+                              {event.mapsUrl && <span>Localização no mapa</span>}
+                              {event.guestNotes && <small>{event.guestNotes}</small>}
                             </div>
                           ))}
+                          {(inviteDressCode || invitePublicNotes || inviteSupportName || inviteSupportPhone) && (
+                            <div className="invitation-preview-guide">
+                              <strong>Informações úteis</strong>
+                              {inviteDressCode && <span>Traje: {inviteDressCode}</span>}
+                              {invitePublicNotes && <span>{invitePublicNotes}</span>}
+                              {(inviteSupportName || inviteSupportPhone) && <span>Contacto: {[inviteSupportName, inviteSupportPhone].filter(Boolean).join(" · ")}</span>}
+                            </div>
+                          )}
                           <div className="invitation-preview-rsvp">
-                            A confirmação de presença será feita pelo link
-                            individual.
+                            O link individual inclui RSVP e, quando atribuída, a tua mesa.
                           </div>
                         </div>
                       </aside>
@@ -2274,6 +2331,41 @@ export default function Dashboard() {
                                 placeholder="Ex.: Conservatória de Luanda"
                               />
                             </label>
+                            <label>
+                              Morada completa
+                              <input
+                                value={eventAddress}
+                                onChange={(e) => setEventAddress(e.target.value)}
+                                placeholder="Rua, bairro, município e província"
+                              />
+                            </label>
+                            <label>
+                              Link do mapa
+                              <input
+                                type="url"
+                                value={eventMapsUrl}
+                                onChange={(e) => setEventMapsUrl(e.target.value)}
+                                placeholder="https://maps.google.com/..."
+                              />
+                            </label>
+                            <label className="event-editor-notes">
+                              Orientações para os convidados
+                              <textarea
+                                rows={2}
+                                maxLength={800}
+                                value={eventGuestNotes}
+                                onChange={(e) => setEventGuestNotes(e.target.value)}
+                                placeholder="Ex.: entrada pelo portão lateral; chegar 15 minutos antes."
+                              />
+                            </label>
+                            <label className="event-guest-visibility">
+                              <input
+                                type="checkbox"
+                                checked={eventShowToGuests}
+                                onChange={(e) => setEventShowToGuests(e.target.checked)}
+                              />
+                              Mostrar este momento no Guia do Convidado
+                            </label>
                             <div className="event-editor-actions">
                               <button className="button button-primary compact">
                                 {editingEventId
@@ -2308,6 +2400,7 @@ export default function Dashboard() {
                                 <strong>{item.title}</strong>
                                 <span>{eventDateTime(item.startsAt)}</span>
                                 <small>
+                                  {item.showToGuests ? "Visível aos convidados · " : "Só para a equipa · "}
                                   {item.venue || "Local por definir"}
                                 </small>
                                 <div>
@@ -2484,17 +2577,17 @@ export default function Dashboard() {
                 {tab === "settings" && (
                   <div className="settings-stack">
                     <header className="settings-page-heading">
-                      <p className="eyebrow">Gestão do evento e da conta</p>
+                      <p className="eyebrow">Preferências e dados</p>
                       <h1>Definições</h1>
-                      <p>Escolhe se queres alterar este evento ou gerir a tua conta e os teus dados.</p>
-                      <div className="settings-view-switch" aria-label="Secções de definições">
-                        <button type="button" aria-pressed={settingsView === "event"} className={settingsView === "event" ? "selected" : ""} onClick={() => setSettingsView("event")}>Este evento</button>
-                        <button type="button" aria-pressed={settingsView === "account"} className={settingsView === "account" ? "selected" : ""} onClick={() => setSettingsView("account")}>Conta e privacidade</button>
+                      <p>Ajusta os dados do evento ou gere a tua conta e os teus dados pessoais.</p>
+                      <div className="settings-view-switch" role="group" aria-label="Escolher definições">
+                        <button type="button" aria-pressed={settingsView === "event"} className={settingsView === "event" ? "selected" : ""} onClick={() => setSettingsView("event")}><span aria-hidden="true">◈</span> Este evento</button>
+                        <button type="button" aria-pressed={settingsView === "account"} className={settingsView === "account" ? "selected" : ""} onClick={() => setSettingsView("account")}><span aria-hidden="true">♙</span> Conta e privacidade</button>
                       </div>
                     </header>
                     {settingsView === "event" ? (
                       <>
-                        <section className="dash-panel wide-panel">
+                        <section className="dash-panel wide-panel settings-panel">
                           <p className="eyebrow">Informação principal</p>
                           <h2>Dados do evento</h2>
                           <p className="empty-copy">
@@ -2505,7 +2598,7 @@ export default function Dashboard() {
                           ) : (
                             <p className="settings-save-state saved" role="status">Os dados estão actualizados.</p>
                           )}
-                          <form className="settings-form" onSubmit={saveProject}>
+                          <form className="settings-form event-settings-form" onSubmit={saveProject}>
                             <label>
                               Nome do evento
                               <input required minLength={2} value={editProjectTitle} onChange={(e) => setEditProjectTitle(e.target.value)} />
@@ -2541,8 +2634,8 @@ export default function Dashboard() {
                           </form>
                         </section>
                         {canManageTeam && (
-                          <section className="dash-panel wide-panel archive-event-panel">
-                            <p className="eyebrow">Deixar de gerir este evento</p>
+                        <section className="dash-panel wide-panel archive-event-panel">
+                            <p className="eyebrow">Organização dos eventos</p>
                             <h2>Arquivar evento</h2>
                             <p className="empty-copy">
                               O evento sai da lista de activos, mas os dados ficam guardados. Podes restaurá-lo em “Os meus eventos”. Isto não elimina convidados, despesas ou histórico.
@@ -2555,10 +2648,10 @@ export default function Dashboard() {
                       </>
                     ) : (
                       <>
-                        <section className="dash-panel wide-panel">
+                        <section className="dash-panel wide-panel settings-panel">
                           <p className="eyebrow">Segurança da conta</p>
                           <h2>Alterar palavra-passe</h2>
-                          <form className="settings-form" onSubmit={changePassword}>
+                          <form className="settings-form account-password-form" onSubmit={changePassword}>
                             <label>
                               Palavra-passe actual
                               <input type="password" minLength={8} required value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} />
@@ -2572,7 +2665,7 @@ export default function Dashboard() {
                             </button>
                           </form>
                         </section>
-                        <section className="dash-panel wide-panel">
+                        <section className="dash-panel wide-panel settings-panel settings-export-panel">
                           <p className="eyebrow">Os teus dados</p>
                           <h2>Exportação e privacidade</h2>
                           <p className="empty-copy">
@@ -2583,24 +2676,26 @@ export default function Dashboard() {
                           </button>
                         </section>
                         <section className="dash-panel wide-panel danger-panel">
-                          <p className="eyebrow">Acção permanente</p>
-                          <h2>Eliminar a conta</h2>
-                          <p className="empty-copy">
-                            A conta será eliminada. Eventos em que és a única pessoa responsável também serão removidos; os restantes passam para outra pessoa da equipa.
-                          </p>
-                          <form className="settings-form" onSubmit={deleteAccount}>
-                            <label>
-                              Palavra-passe
-                              <input type="password" minLength={8} required value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} />
-                            </label>
-                            <label>
-                              Escreve ELIMINAR para confirmar
-                              <input required value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} />
-                            </label>
-                            <button className="button danger-button" disabled={deletingAccount || deleteConfirmation !== "ELIMINAR" || !deletePassword}>
-                              {deletingAccount ? "A eliminar…" : "Eliminar a minha conta"}
-                            </button>
-                          </form>
+                          <p className="eyebrow">Zona de segurança</p>
+                          <details className="danger-details">
+                            <summary>Eliminar a conta permanentemente</summary>
+                            <p className="empty-copy">
+                              Esta acção não pode ser anulada. Eventos em que és a única pessoa responsável também serão removidos; os restantes passam para outra pessoa da equipa.
+                            </p>
+                            <form className="settings-form delete-account-form" onSubmit={deleteAccount}>
+                              <label>
+                                Palavra-passe actual
+                                <input type="password" minLength={8} required value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} />
+                              </label>
+                              <label>
+                                Escreve ELIMINAR para confirmar
+                                <input required value={deleteConfirmation} onChange={(e) => setDeleteConfirmation(e.target.value)} />
+                              </label>
+                              <button className="button danger-button" disabled={deletingAccount || deleteConfirmation !== "ELIMINAR" || !deletePassword}>
+                                {deletingAccount ? "A eliminar…" : "Eliminar a minha conta"}
+                              </button>
+                            </form>
+                          </details>
                         </section>
                       </>
                     )}

@@ -1,6 +1,7 @@
 "use client";
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { formatAOA } from "../lib/format";
 import { VendorModerationWorkspace } from "./vendor-moderation-workspace";
 
 type Vendor = {
@@ -458,7 +459,7 @@ export default function AdminConsole() {
   return (
     <main className="admin-page">
       <a className="planner-back" href="/">
-        ← Casar em Angola
+        ← Nuvia
       </a>
       <div className="admin-head">
         <div>
@@ -552,7 +553,7 @@ export default function AdminConsole() {
                             ? ` · Capacidade: ${v.capacityMin ?? "—"}–${v.capacityMax ?? "—"}`
                             : ""}
                           {v.priceFrom || v.priceTo
-                            ? ` · Preço: ${v.priceFrom ?? "—"}–${v.priceTo ?? "—"} Kz`
+                            ? ` · Preço: ${formatAOA(v.priceFrom)} – ${formatAOA(v.priceTo)}`
                             : ""}
                         </small>
                       </span>
@@ -565,7 +566,7 @@ export default function AdminConsole() {
                         {v.status === "SUSPENDED" && <button disabled={savingAction} onClick={() => void reviewVendor(v, "ACTIVE")}>Reactivar</button>}
                       </div>
                     </article>
-                    {selectedVendorId === v.id && <section className="admin-vendor-detail"><div><small>Contacto</small><strong>{v.phone || "Telefone não indicado"} · {v.email || "Email não indicado"}</strong></div><div><small>Serviços</small><strong>{v.services.length ? v.services.join(" · ") : "Por preencher"}</strong></div><div><small>Zonas atendidas</small><strong>{v.serviceAreas.length ? v.serviceAreas.join(" · ") : "Por preencher"}</strong></div><div><small>Capacidade e valores</small><strong>{v.capacityMin ?? "—"}–{v.capacityMax ?? "—"} pessoas · {v.priceFrom ?? "—"}–{v.priceTo ?? "—"} Kz</strong></div><div><small>Condições</small><strong>Reserva: {v.bookingTerms || "não indicadas"} · Pagamento: {v.paymentTerms || "não indicadas"} · Cancelamento: {v.cancellationTerms || "não indicado"}</strong></div></section>}
+                    {selectedVendorId === v.id && <section className="admin-vendor-detail"><div><small>Contacto</small><strong>{v.phone || "Telefone não indicado"} · {v.email || "Email não indicado"}</strong></div><div><small>Serviços</small><strong>{v.services.length ? v.services.join(" · ") : "Por preencher"}</strong></div><div><small>Zonas atendidas</small><strong>{v.serviceAreas.length ? v.serviceAreas.join(" · ") : "Por preencher"}</strong></div><div><small>Capacidade e valores</small><strong>{v.capacityMin ?? "—"}–{v.capacityMax ?? "—"} pessoas · {formatAOA(v.priceFrom)} – {formatAOA(v.priceTo)}</strong></div><div><small>Condições</small><strong>Reserva: {v.bookingTerms || "não indicadas"} · Pagamento: {v.paymentTerms || "não indicadas"} · Cancelamento: {v.cancellationTerms || "não indicado"}</strong></div></section>}
                     </div>
                   ))
                 ) : (

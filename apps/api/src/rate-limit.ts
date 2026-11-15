@@ -33,6 +33,8 @@ export function createPersistentRateLimit(
     const limited =
       path.startsWith("/api/v1/auth/login") ||
       path.startsWith("/api/v1/auth/register") ||
+      path.startsWith("/api/v1/auth/password-reset/request") ||
+      path.startsWith("/api/v1/auth/password-reset/reset") ||
       path.startsWith("/api/v1/vendor-applications") ||
       /^\/api\/v1\/invitations\/[^/]+\/rsvp/.test(path);
     if (!limited) return next();
@@ -44,7 +46,8 @@ export function createPersistentRateLimit(
       );
       const keys = [`${address}:${request.method}:${route}`];
       if (
-        path.startsWith("/api/v1/auth/login") &&
+        (path.startsWith("/api/v1/auth/login") ||
+          path.startsWith("/api/v1/auth/password-reset/request")) &&
         typeof request.body?.email === "string"
       )
         keys.push(`account:${request.body.email.trim().toLowerCase()}`);

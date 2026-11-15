@@ -121,6 +121,7 @@ model User {
   quoteRequests   QuoteRequest[]
   auditLogs       AuditLog[]
   sessions        Session[]
+  passwordResetTokens PasswordResetToken[]
   vendorFavorites VendorFavorite[]
   platformSettings PlatformSetting[]
   managedVendors   Vendor[]                    @relation("VendorManager")
@@ -145,6 +146,19 @@ model Session {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 model RateLimitBucket {
@@ -195,14 +209,18 @@ model ProjectMember {
 }
 
 model EventMoment {
-  id        String       @id @default(cuid())
-  projectId String       @map("weddingId")
-  type      EventType
-  title     String
-  startsAt  DateTime?
-  venue     String?
-  project   EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  rsvps     RSVP[]
+  id             String       @id @default(cuid())
+  projectId      String       @map("weddingId")
+  type           EventType
+  title          String
+  startsAt       DateTime?
+  venue          String?
+  address        String?
+  mapsUrl        String?
+  guestNotes     String?
+  showToGuests   Boolean      @default(true)
+  project        EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rsvps          RSVP[]
 
   @@index([projectId, startsAt])
   @@map("WeddingEvent")
@@ -280,16 +298,20 @@ model Expense {
 }
 
 model Invitation {
-  id        String       @id @default(cuid())
-  projectId String       @map("weddingId")
-  slug      String       @unique
-  headline  String?
-  message   String?
-  theme     InvitationTheme @default(CLASSIC)
-  isPublic  Boolean      @default(false)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  project   EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id                 String          @id @default(cuid())
+  projectId          String          @map("weddingId")
+  slug               String          @unique
+  headline           String?
+  message            String?
+  theme              InvitationTheme @default(CLASSIC)
+  publicNotes        String?
+  dressCode          String?
+  supportContactName String?
+  supportContactPhone String?
+  isPublic           Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  project            EventProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { luandaDateInput, luandaTodayDateInput } from "../lib/time";
+import { formatAOA } from "../lib/format";
 import type { BudgetExpense } from "./budget-panel";
 
 type ReportTask = {
@@ -18,13 +19,6 @@ type ReportTask = {
 type ReportGuest = {
   rsvps: { status: string; partySize: number }[];
 };
-
-const money = (value: number) =>
-  new Intl.NumberFormat("pt-AO", {
-    style: "currency",
-    currency: "AOA",
-    maximumFractionDigits: 0,
-  }).format(value);
 
 const displayDate = (value: string) =>
   new Intl.DateTimeFormat("pt-AO", {
@@ -164,25 +158,25 @@ export function ReportsPanel({
         {balance !== null && balance < 0 && (
           <div className="report-budget-alert" role="status">
             As despesas registadas ultrapassam o limite em{" "}
-            <strong>{money(Math.abs(balance))}</strong>.
+            <strong>{formatAOA(Math.abs(balance))}</strong>.
           </div>
         )}
         <div className="report-finance-grid">
           <article>
             <small>Limite do evento</small>
-            <strong>{limit === null ? "Por definir" : money(limit)}</strong>
+            <strong>{limit === null ? "Por definir" : formatAOA(limit)}</strong>
           </article>
           <article>
             <small>Estimado</small>
-            <strong>{money(totals.estimated)}</strong>
+            <strong>{formatAOA(totals.estimated)}</strong>
           </article>
           <article>
             <small>Contratado · por pagar</small>
-            <strong>{money(totals.committed)}</strong>
+            <strong>{formatAOA(totals.committed)}</strong>
           </article>
           <article>
             <small>Pago</small>
-            <strong>{money(totals.paid)}</strong>
+            <strong>{formatAOA(totals.paid)}</strong>
           </article>
           <article
             className={balance !== null && balance < 0 ? "over" : "balance"}
@@ -193,7 +187,7 @@ export function ReportsPanel({
                 : "Saldo após despesas registadas"}
             </small>
             <strong>
-              {balance === null ? "Define o limite" : money(balance)}
+              {balance === null ? "Define o limite" : formatAOA(balance)}
             </strong>
           </article>
         </div>
@@ -202,7 +196,7 @@ export function ReportsPanel({
             <div>
               <span>Total registado</span>
               <strong>
-                {money(registered)} · {progress}% do limite
+                {formatAOA(registered)} · {progress}% do limite
               </strong>
             </div>
             <div
@@ -249,12 +243,12 @@ export function ReportsPanel({
               .map(([category, values]) => (
                 <article className="report-category-row" key={category}>
                   <strong>{category}</strong>
-                  <span>{money(values.estimated)}</span>
-                  <span>{money(values.committed)}</span>
-                  <span>{money(values.paid)}</span>
+                  <span>{formatAOA(values.estimated)}</span>
+                  <span>{formatAOA(values.committed)}</span>
+                  <span>{formatAOA(values.paid)}</span>
                   <div
                     className="report-category-bars"
-                    aria-label={`${category}: estimado ${money(values.estimated)}, contratado ${money(values.committed)}, pago ${money(values.paid)}`}
+                    aria-label={`${category}: estimado ${formatAOA(values.estimated)}, contratado ${formatAOA(values.committed)}, pago ${formatAOA(values.paid)}`}
                   >
                     <i
                       className="estimated"
@@ -413,7 +407,7 @@ export function ReportsPanel({
                     <strong>{expense.title}</strong>
                     <small>
                       {overdue ? "Prazo ultrapassado" : "Por pagar"} ·{" "}
-                      {money(Number(expense.amount))}
+                      {formatAOA(Number(expense.amount))}
                     </small>
                   </div>
                   <button

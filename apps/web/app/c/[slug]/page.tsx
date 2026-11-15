@@ -1,24 +1,53 @@
 "use client";
+
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "../../lib/api";
+
 type Invitation = {
   slug: string;
   headline: string | null;
   message: string | null;
   theme: "CLASSIC" | "BOTANICAL" | "TERRACOTTA";
+  publicNotes: string | null;
+  dressCode: string | null;
+  supportContactName: string | null;
+  supportContactPhone: string | null;
   recipient: {
     name: string;
     maxPartySize: number;
+    tableName: string | null;
     rsvp: { status: string; partySize: number } | null;
   } | null;
   project: {
     title: string;
+    kind: string;
     date: string | null;
     province: string | null;
-    events: { title: string; startsAt: string | null; venue: string | null }[];
+    events: {
+      id: string;
+      title: string;
+      type: string;
+      startsAt: string | null;
+      venue: string | null;
+      address: string | null;
+      mapsUrl: string | null;
+      guestNotes: string | null;
+    }[];
   };
 };
+
+const date = (value: string | null, withTime = false) =>
+  value
+    ? new Intl.DateTimeFormat("pt-AO", {
+        dateStyle: withTime ? "medium" : "long",
+        ...(withTime ? { timeStyle: "short" as const } : {}),
+        timeZone: "Africa/Luanda",
+      }).format(new Date(value))
+    : withTime
+      ? "Horário por confirmar"
+      : "Data por confirmar";
+
 export default function InvitationPage() {
   const { slug } = useParams<{ slug: string }>();
   const [token, setToken] = useState("");
@@ -26,26 +55,25 @@ export default function InvitationPage() {
   const [status, setStatus] = useState("");
   const [partySize, setPartySize] = useState(1);
   const [error, setError] = useState("");
+
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get("token") || "";
-    setToken(t);
-    api<Invitation>(
-      `/invitations/${slug}${t ? `?token=${encodeURIComponent(t)}` : ""}`,
-    )
+    const currentToken = new URLSearchParams(window.location.search).get("token") || "";
+    setToken(currentToken);
+    api<Invitation>(`/invitations/${slug}${currentToken ? `?token=${encodeURIComponent(currentToken)}` : ""}`)
       .then((item) => {
         setInvite(item);
         if (item.recipient?.rsvp) {
           setPartySize(item.recipient.rsvp.partySize);
-          setStatus(
-            item.recipient.rsvp.status === "DECLINED" ? "declined" : "accepted",
-          );
+          setStatus(item.recipient.rsvp.status === "DECLINED" ? "declined" : "accepted");
         }
       })
-      .catch((e) => setError(e.message));
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível abrir esta página."));
   }, [slug]);
-  async function rsvp(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
+
+  async function rsvp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setError("");
     try {
       await api(`/invitations/${slug}/rsvp`, {
         method: "POST",
@@ -56,104 +84,126 @@ export default function InvitationPage() {
         }),
       });
       setStatus("A tua resposta foi registada. Obrigado!");
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "Não foi possível registar a resposta.",
-      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível registar a resposta.");
     }
   }
-  if (!invite)
+
+  if (!invite) {
     return (
       <main className="invitation-page">
-        <a className="planner-back" href="/">
-          ♡ Casar em Angola
-        </a>
-        <p>{error || "A preparar o convite…"}</p>
+        <a className="planner-back" href="/">Nuvia</a>
+        <p role={error ? "alert" : "status"}>{error || "A preparar o convite…"}</p>
       </main>
     );
+  }
+
+  const hasGuideDetails = Boolean(
+    invite.publicNotes || invite.dressCode || invite.supportContactName || invite.supportContactPhone,
+  );
+
   return (
-    <main className="invitation-page">
-      <div className={`invitation-card theme-${invite.theme.toLowerCase()}`}>
-        <span className="invitation-mark">♡</span>
-        <p className="eyebrow">Com alegria convidamos-te</p>
-        <h1>{invite.headline || invite.project.title}</h1>
-        {invite.recipient && (
-          <p className="recipient">Querido/a {invite.recipient.name}</p>
+    <main className="invitation-page guest-guide-page">
+      <div className="guest-guide-shell">
+        <section className={`invitation-card theme-${invite.theme.toLowerCase()} guest-guide-cover`}>
+          <span className="invitation-mark" aria-hidden="true">♡</span>
+          <p className="eyebrow">Com alegria convidamos-te</p>
+          <h1>{invite.headline || invite.project.title}</h1>
+          {invite.recipient && <p className="recipient">Querido/a {invite.recipient.name}</p>}
+          <p className="invitation-message">{invite.message || "Será uma alegria celebrar este momento contigo."}</p>
+          <p className="invitation-date">{date(invite.project.date)}</p>
+          {invite.project.province && <p className="guest-guide-province">{invite.project.province}, Angola</p>}
+        </section>
+
+        <section className="guest-guide-program" aria-labelledby="guest-guide-program-title">
+          <header className="guest-guide-section-heading">
+            <p className="eyebrow">Guia do convidado</p>
+            <h2 id="guest-guide-program-title">Programa e locais</h2>
+            <p>Consulta os horários e as informações para chegares a cada momento.</p>
+          </header>
+          {invite.project.events.length ? (
+            <div className="guest-guide-timeline">
+              {invite.project.events.map((item) => (
+                <article className="guest-guide-moment" key={item.id}>
+                  <div className="guest-guide-moment-time">{date(item.startsAt, true)}</div>
+                  <div className="guest-guide-moment-body">
+                    <h3>{item.title}</h3>
+                    {item.venue && <p className="guest-guide-venue">{item.venue}</p>}
+                    {item.address && <p className="guest-guide-address">{item.address}</p>}
+                    {item.mapsUrl && (
+                      <a className="guest-guide-map-link" href={item.mapsUrl} target="_blank" rel="noreferrer">
+                        Abrir localização no mapa <span aria-hidden="true">↗</span>
+                      </a>
+                    )}
+                    {item.guestNotes && <p className="guest-guide-note">{item.guestNotes}</p>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="guest-guide-empty">O programa será actualizado quando os horários e locais estiverem definidos.</p>
+          )}
+        </section>
+
+        {hasGuideDetails && (
+          <section className="guest-guide-practical" aria-labelledby="guest-guide-practical-title">
+            <header className="guest-guide-section-heading">
+              <p className="eyebrow">Antes de sair</p>
+              <h2 id="guest-guide-practical-title">Informações úteis</h2>
+            </header>
+            <div className="guest-guide-practical-grid">
+              {invite.dressCode && <article><span aria-hidden="true">✦</span><div><h3>Traje</h3><p>{invite.dressCode}</p></div></article>}
+              {invite.publicNotes && <article><span aria-hidden="true">i</span><div><h3>Nota dos anfitriões</h3><p>{invite.publicNotes}</p></div></article>}
+              {(invite.supportContactName || invite.supportContactPhone) && (
+                <article>
+                  <span aria-hidden="true">☎</span>
+                  <div>
+                    <h3>Contacto no dia</h3>
+                    {invite.supportContactName && <p>{invite.supportContactName}</p>}
+                    {invite.supportContactPhone && <a href={`tel:${invite.supportContactPhone.replace(/[^\d+]/g, "")}`}>{invite.supportContactPhone}</a>}
+                  </div>
+                </article>
+              )}
+            </div>
+          </section>
         )}
-        <p className="invitation-message">
-          {invite.message || "Será uma alegria celebrar este momento contigo."}
-        </p>
-        {invite.project.date && (
-          <p className="invitation-date">
-            {new Intl.DateTimeFormat("pt-AO", {
-              dateStyle: "long",
-              timeZone: "Africa/Luanda",
-            }).format(new Date(invite.project.date))}
-          </p>
-        )}
-        {invite.project.province && <p>{invite.project.province}</p>}
-        {invite.project.events.map((event) => (
-          <div className="invitation-event" key={event.title}>
-            <strong>{event.title}</strong>
-            <span>
-              {event.startsAt
-                ? new Intl.DateTimeFormat("pt-AO", {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                    timeZone: "Africa/Luanda",
-                  }).format(new Date(event.startsAt))
-                : "Horário por confirmar"}
-            </span>
-            {event.venue && <span>{event.venue}</span>}
-          </div>
-        ))}
+
         {token ? (
-          <form className="rsvp-form" onSubmit={rsvp}>
-            <h2>Confirmar presença</h2>
-            <label>
-              A tua resposta
-              <select
-                name="status"
-                value={status === "declined" ? "DECLINED" : "ACCEPTED"}
-                onChange={(e) =>
-                  setStatus(
-                    e.target.value === "DECLINED" ? "declined" : "accepted",
-                  )
-                }
-              >
-                <option value="ACCEPTED">Sim, estarei presente</option>
-                <option value="DECLINED">Não poderei estar presente</option>
-              </select>
-            </label>
-            <label>
-              Número de pessoas
-              <input
-                name="partySize"
-                type="number"
-                min="1"
-                max={invite.recipient?.maxPartySize ?? 1}
-                value={partySize}
-                onChange={(e) => setPartySize(Number(e.target.value))}
-              />
-            </label>
-            <button className="button button-primary">Enviar resposta →</button>
-            {status === "A tua resposta foi registada. Obrigado!" && (
-              <p role="status">{status}</p>
+          <section className="guest-guide-personal" aria-labelledby="guest-guide-personal-title">
+            <div>
+              <p className="eyebrow">A tua informação</p>
+              <h2 id="guest-guide-personal-title">Confirma a tua presença</h2>
+              {invite.recipient?.tableName && <p className="guest-guide-table">A tua mesa <strong>{invite.recipient.tableName}</strong></p>}
+              {invite.recipient && <p className="guest-guide-party-limit">Este convite permite até {invite.recipient.maxPartySize} pessoa(s).</p>}
+            </div>
+            {invite.recipient ? (
+              <form className="rsvp-form" onSubmit={(event) => void rsvp(event)}>
+                <label>
+                  A tua resposta
+                  <select name="status" value={status === "declined" ? "DECLINED" : "ACCEPTED"} onChange={(event) => setStatus(event.target.value === "DECLINED" ? "declined" : "accepted")}>
+                    <option value="ACCEPTED">Sim, estarei presente</option>
+                    <option value="DECLINED">Não poderei estar presente</option>
+                  </select>
+                </label>
+                {status !== "declined" && (
+                  <label>
+                    Número de pessoas
+                    <input name="partySize" type="number" min="1" max={invite.recipient.maxPartySize} value={partySize} onChange={(event) => setPartySize(Number(event.target.value))} />
+                  </label>
+                )}
+                <button className="button button-primary">Enviar resposta →</button>
+                {status === "A tua resposta foi registada. Obrigado!" && <p role="status">{status}</p>}
+              </form>
+            ) : (
+              <p className="guest-guide-private-note">Este link pessoal já não está válido. Pede aos anfitriões que te enviem um link actualizado.</p>
             )}
-          </form>
+          </section>
         ) : (
-          <p className="rsvp-private">
-            A confirmação de presença é feita através do link individual enviado
-            pelos noivos.
-          </p>
+          <p className="guest-guide-rsvp-note">Para confirmares presença e consultares a tua mesa, abre o link individual que recebeste.</p>
         )}
-        {error && <p className="form-error">{error}</p>}
+        {error && <p className="form-error" role="alert">{error}</p>}
       </div>
-      <small className="invitation-footer">
-        Convite digital · Casar em Angola
-      </small>
+      <small className="invitation-footer">Convite e guia do evento · Nuvia</small>
     </main>
   );
 }

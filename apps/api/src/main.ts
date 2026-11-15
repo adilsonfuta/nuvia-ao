@@ -50,8 +50,8 @@ async function bootstrap() {
     }),
   );
   const docs = new DocumentBuilder()
-    .setTitle("Casar em Angola API")
-    .setDescription("API REST da plataforma Casar em Angola")
+    .setTitle("Nuvia API")
+    .setDescription("API REST da plataforma Nuvia para eventos e celebrações em Angola")
     .setVersion("1.0")
     .addCookieAuth("casar_session")
     .build();

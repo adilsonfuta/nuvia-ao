@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { formatAOA } from '../lib/format';
 
 const projectKinds = [
   { value: 'WEDDING', label: 'Casamento', description: 'Planeamento do casamento e dos momentos ligados à celebração.', icon: '♡' },
@@ -65,7 +66,7 @@ export default function Planner() {
     province ? `Pesquisar espaços e serviços em ${province}` : 'Escolher a província onde querem celebrar',
     date ? `Confirmar disponibilidade dos serviços para ${new Intl.DateTimeFormat('pt-AO', { dateStyle: 'long', timeZone: 'Africa/Luanda' }).format(new Date(`${date}T12:00:00`))}` : 'Escolher uma data ou período que funcione para vocês',
     guests ? `Preparar uma primeira lista para cerca de ${Number(guests).toLocaleString('pt-AO')} convidados` : 'Estimar quantas pessoas gostariam de convidar',
-    budget ? `Registar o limite de orçamento de ${new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(Number(budget))}` : 'Conversar sobre o orçamento disponível'
+    budget ? `Registar o limite de orçamento de ${formatAOA(budget)}` : 'Conversar sobre o orçamento disponível'
   ];
 
   if (step === 'result') return <section className="plan-result" aria-live="polite">
