@@ -18,6 +18,7 @@ import {
   EventType,
   ExpenseStatus,
   InvitationTheme,
+  NotificationType,
   ProjectKind,
   QuoteRequestStatus,
   TaskPriority,
@@ -45,6 +46,7 @@ import {
 import { Type } from "class-transformer";
 import { DatabaseService } from "./database";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
+import { dismissSourceNotifications, notifyProjectMembers, notifyUser } from "./notifications";
 
 const projectTaskTemplates: Record<ProjectKind, string[]> = {
   WEDDING: [
@@ -594,7 +596,7 @@ export class ProjectsController {
         "O responsável seleccionado não faz parte deste evento.",
       );
     const { assigneeUserId, ...task } = body;
-    return this.db.task.create({
+    const created = await this.db.task.create({
       data: {
         ...task,
         status: body.status ?? "TODO",
@@ -606,6 +608,17 @@ export class ProjectsController {
         assignedTo: { select: { id: true, name: true, email: true } },
       },
     });
+    if (created.assigneeUserId && created.assigneeUserId !== user.id) {
+      await notifyUser(this.db, created.assigneeUserId, id, {
+        type: NotificationType.TASK_ASSIGNED,
+        key: `task-assigned:${created.id}:${created.assigneeUserId}:${created.createdAt.toISOString()}`,
+        sourceId: created.id,
+        title: "Tarefa atribuída a ti",
+        body: created.title,
+        href: `/dashboard?tab=planeamento&event=${encodeURIComponent(id)}`,
+      });
+    }
+    return created;
   }
   @Patch(":id/tasks/:taskId") async updateTask(
     @Param("id") id: string,
@@ -625,6 +638,11 @@ export class ProjectsController {
       throw new BadRequestException(
         "O responsável seleccionado não faz parte deste evento.",
       );
+    const previous = await this.db.task.findFirst({
+      where: { id: taskId, projectId: id },
+      select: { assigneeUserId: true, dueAt: true },
+    });
+    if (!previous) throw new NotFoundException("Tarefa não encontrada.");
     const result = await this.db.task.updateMany({
       where: { id: taskId, projectId: id },
       data: {
@@ -638,12 +656,35 @@ export class ProjectsController {
       },
     });
     if (!result.count) throw new NotFoundException("Tarefa não encontrada.");
-    return this.db.task.findUnique({
+    const updated = await this.db.task.findUnique({
       where: { id: taskId },
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
       },
     });
+    if (
+      updated?.assigneeUserId &&
+      updated.assigneeUserId !== previous.assigneeUserId &&
+      updated.assigneeUserId !== user.id
+    ) {
+      await notifyUser(this.db, updated.assigneeUserId, id, {
+        type: NotificationType.TASK_ASSIGNED,
+        key: `task-assigned:${updated.id}:${updated.assigneeUserId}:${Date.now()}`,
+        sourceId: updated.id,
+        title: "Tarefa atribuída a ti",
+        body: updated.title,
+        href: `/dashboard?tab=planeamento&event=${encodeURIComponent(id)}`,
+      });
+    }
+    if (
+      updated &&
+      (updated.status === "DONE" ||
+        (body.dueAt !== undefined &&
+          updated.dueAt?.getTime() !== previous.dueAt?.getTime()))
+    ) {
+      await dismissSourceNotifications(this.db, id, NotificationType.TASK_DUE, taskId);
+    }
+    return updated;
   }
   @Delete(":id/tasks/:taskId") async deleteTask(
     @Param("id") id: string,
@@ -655,6 +696,7 @@ export class ProjectsController {
       where: { id: taskId, projectId: id },
     });
     if (!result.count) throw new NotFoundException("Tarefa não encontrada.");
+    await dismissSourceNotifications(this.db, id, NotificationType.TASK_DUE, taskId);
     return { ok: true };
   }
   @Get(":id/guests") async guests(
@@ -916,6 +958,11 @@ export class ProjectsController {
     @Body() body: UpdateExpenseDto,
   ) {
     await this.owned(id, user.id, true);
+    const previous = await this.db.expense.findFirst({
+      where: { id: expenseId, projectId: id },
+      select: { dueAt: true },
+    });
+    if (!previous) throw new NotFoundException("Despesa não encontrada.");
     if (
       body.taskId &&
       !(await this.db.task.findFirst({
@@ -939,10 +986,19 @@ export class ProjectsController {
       },
     });
     if (!result.count) throw new NotFoundException("Despesa não encontrada.");
-    return this.db.expense.findUnique({
+    const updated = await this.db.expense.findUnique({
       where: { id: expenseId },
       include: { task: { select: { id: true, title: true } } },
     });
+    if (
+      updated &&
+      (updated.status === "PAID" ||
+        (body.dueAt !== undefined &&
+          updated.dueAt?.getTime() !== previous.dueAt?.getTime()))
+    ) {
+      await dismissSourceNotifications(this.db, id, NotificationType.EXPENSE_DUE, expenseId);
+    }
+    return updated;
   }
   @Delete(":id/budget/expenses/:expenseId") async deleteExpense(
     @Param("id") id: string,
@@ -963,6 +1019,7 @@ export class ProjectsController {
           data: { status: "RESPONDED" },
         });
     });
+    await dismissSourceNotifications(this.db, id, NotificationType.EXPENSE_DUE, expense.id);
     return { ok: true };
   }
   @Post(":id/invitations") async publishInvitation(
@@ -1156,12 +1213,26 @@ export class ProjectsController {
       throw new BadRequestException(
         "O acesso de responsável não pode ser alterado por este formulário.",
       );
-    return this.db.projectMember.upsert({
+    const membership = await this.db.projectMember.upsert({
       where: { projectId_userId: { projectId: id, userId: invited.id } },
       create: { projectId: id, userId: invited.id, role: body.role },
       update: { role: body.role },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
+    if (!existing || existing.role !== body.role) {
+      const project = await this.db.eventProject.findUnique({
+        where: { id },
+        select: { title: true },
+      });
+      await notifyUser(this.db, invited.id, id, {
+        type: NotificationType.PROJECT_SHARED,
+        key: `project-shared:${id}:${invited.id}:${Date.now()}`,
+        title: existing ? "Acesso ao evento actualizado" : "Partilharam um evento contigo",
+        body: `${user.name || user.email} ${existing ? "actualizou o teu acesso a" : "partilhou contigo"} ${project?.title || "um evento"}.`,
+        href: `/dashboard?tab=eventos&event=${encodeURIComponent(id)}`,
+      });
+    }
+    return membership;
   }
   @Delete(":id/members/:userId") async removeMember(
     @Param("id") id: string,
@@ -1304,7 +1375,11 @@ export class PublicInvitationController {
       throw new BadRequestException(
         `Este convite permite confirmar até ${guest.maxPartySize} pessoa(s).`,
       );
-    return this.db.rSVP.upsert({
+    const existing = await this.db.rSVP.findUnique({
+      where: { guestId_eventKey: { guestId: guest.id, eventKey: "all" } },
+      select: { status: true, partySize: true },
+    });
+    const response = await this.db.rSVP.upsert({
       where: { guestId_eventKey: { guestId: guest.id, eventKey: "all" } },
       create: {
         guestId: guest.id,
@@ -1319,5 +1394,26 @@ export class PublicInvitationController {
         note: body.note,
       },
     });
+    if (
+      !existing ||
+      existing.status !== response.status ||
+      existing.partySize !== response.partySize
+    ) {
+      const answer =
+        response.status === "ACCEPTED"
+          ? `confirmou presença${response.partySize > 1 ? ` de ${response.partySize} pessoas` : ""}`
+          : "indicou que não poderá estar presente";
+      await notifyProjectMembers(this.db, inv.projectId, {
+        type: NotificationType.RSVP_RECEIVED,
+        key: `rsvp:${guest.id}:${response.updatedAt.toISOString()}`,
+        sourceId: guest.id,
+        title: existing
+          ? "Resposta de convidado actualizada"
+          : "Nova confirmação de presença",
+        body: `${guest.name} ${answer}.`,
+        href: `/dashboard?tab=convidados&event=${encodeURIComponent(inv.projectId)}`,
+      });
+    }
+    return response;
   }
 }

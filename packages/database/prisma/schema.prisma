@@ -77,6 +77,14 @@ enum RsvpStatus {
   DECLINED
 }
 
+enum NotificationType {
+  RSVP_RECEIVED
+  TASK_ASSIGNED
+  TASK_DUE
+  EXPENSE_DUE
+  PROJECT_SHARED
+}
+
 enum UserRole {
   USER
   MODERATOR
@@ -135,6 +143,7 @@ model User {
   moderatedVendorReviews VendorReview[]           @relation("VendorReviewModerator")
   respondedVendorReviews VendorReview[]           @relation("VendorReviewResponder")
   moderatedVendorReviewResponses VendorReview[]   @relation("VendorReviewResponseModerator")
+  notifications   Notification[]
 }
 
 model Session {
@@ -191,6 +200,7 @@ model EventProject {
   quoteRequests QuoteRequest[]
   vendorFavorites ProjectVendorFavorite[]
   seatingTables SeatingTable[]
+  notifications Notification[]
 
   @@map("Wedding")
 }
@@ -206,6 +216,26 @@ model ProjectMember {
   @@id([projectId, userId], map: "WeddingMember_pkey")
   @@index([userId, role])
   @@map("WeddingMember")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  projectId String
+  type      NotificationType
+  key       String
+  sourceId  String?
+  title     String
+  body      String
+  href      String
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   EventProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId, readAt, createdAt])
+  @@index([projectId, createdAt])
 }
 
 model EventMoment {

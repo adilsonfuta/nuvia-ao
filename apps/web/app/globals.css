@@ -266,6 +266,24 @@ input,select,textarea,button{max-width:100%}
 .recovery-invalid-link a{font-weight:700;text-decoration:underline;text-underline-offset:2px}
 @media(max-width:520px){.auth-recovery-link{font-size:10px}.recovery-card{padding:24px 19px}}
 
+/* In-app notifications */
+.notification-center{position:relative;z-index:20;margin:13px 2px 15px}
+.notification-trigger{position:relative;display:flex;width:100%;min-height:39px;align-items:center;gap:9px;padding:0 10px;border:1px solid #e7e1d6;border-radius:9px;background:#fffefa;color:#435044;text-align:left;font:650 11px var(--sans);cursor:pointer}
+.notification-trigger:hover,.notification-trigger[aria-expanded="true"]{border-color:#b8c5a9;background:#f5f7f1}
+.notification-trigger svg{width:17px;height:17px;fill:none;stroke:#87682b;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7}
+.notification-trigger b{display:grid;min-width:19px;height:19px;margin-left:auto;padding:0 5px;place-items:center;border-radius:99px;background:#9a4939;color:#fff;font-size:9px}
+.notification-panel{position:absolute;top:calc(100% + 7px);left:0;width:min(390px,calc(100vw - 280px));min-width:310px;max-height:min(560px,75vh);overflow:auto;border:1px solid #e4ddcf;border-radius:13px;background:#fffefa;box-shadow:0 16px 45px #26302226;color:var(--ink)}
+.notification-panel>header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border-bottom:1px solid #eee9e0;background:#fffefa}
+.notification-panel>header>div{display:grid;gap:3px}.notification-panel>header strong{color:var(--forest);font:700 16px var(--serif)}.notification-panel>header small{color:var(--muted);font-size:9px}
+.notification-panel>header button{border:0;background:transparent;color:#816122;font:650 9px var(--sans);text-align:right;cursor:pointer}
+.notification-panel ul{display:grid;gap:0;margin:0;padding:0;list-style:none}
+.notification-panel li+li{border-top:1px solid #f0ece5}
+.notification-item{display:grid;width:100%;grid-template-columns:8px minmax(0,1fr) 14px;align-items:start;gap:9px;padding:12px 13px;border:0;background:transparent;text-align:left;cursor:pointer}
+.notification-item:hover{background:#f8f6f0}.notification-unread-dot{width:7px;height:7px;margin-top:5px;border-radius:50%;background:transparent}.notification-item.is-unread .notification-unread-dot{background:#52783e}
+.notification-copy{display:grid;gap:4px;min-width:0}.notification-copy strong{color:#334436;font-size:10px}.notification-copy>span{color:#5d645a;font-size:9px;line-height:1.45;overflow-wrap:anywhere}.notification-copy small{color:#8b8b7f;font-size:8px;line-height:1.4}.notification-item.is-read .notification-copy strong{font-weight:600;color:#70766d}.notification-arrow{padding-top:2px;color:#9a762d;font-size:13px}
+.notification-empty{margin:0;padding:17px 14px;color:var(--muted);font-size:10px;line-height:1.55}.notification-error{margin:9px;padding:9px;border-radius:7px;background:#fff0ee;color:#963d34;font-size:9px;line-height:1.45}
+@media(max-width:800px){.notification-center{grid-column:2;grid-row:1;justify-self:end;width:max-content;margin:0}.notification-trigger{width:auto;min-height:36px}.notification-trigger>span{display:none}.notification-trigger b{position:absolute;top:-6px;right:-6px;min-width:17px;height:17px;padding:0 4px}.notification-panel{top:calc(100% + 9px);right:0;left:auto;width:min(390px,calc(100vw - 26px));min-width:0;max-height:min(520px,72vh)}}
+
 /* Guest guide: event details safe to share on the public invitation */
 .guest-guide-page{min-height:100vh;padding:clamp(20px,5vw,56px) 16px 28px;background:radial-gradient(ellipse at 50% 0,#efe3ce 0,transparent 38%),#f8f5ee}
 .guest-guide-shell{display:grid;gap:16px;width:min(100%,980px);margin:0 auto}
