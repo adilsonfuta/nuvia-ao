@@ -13,13 +13,14 @@ type VendorProfile = {
   profileSubmissions: Submission[]; reviews: SupplierReview[];
 };
 type Claim = { id: string; status: "PENDING" | "APPROVED" | "REJECTED"; reason: string | null; createdAt: string; vendor: { id: string; name: string; slug: string; status: string } };
-type PortalData = { vendors: VendorProfile[]; claims: Claim[] };
+type Inquiry = { id: string; message: string; status: "NEW" | "SENT" | "RESPONDED" | "HIRED" | "CLOSED"; quotedAmount: string | number | null; responseNote: string | null; respondedAt: string | null; createdAt: string; vendor: { id: string; name: string; slug: string; category: string }; project: { id: string; title: string; date: string | null; province: string | null; guestEstimate: number | null } };
+type PortalData = { vendors: VendorProfile[]; claims: Claim[]; inquiries: Inquiry[] };
 const lines = (value: string) => value.split("\n").map((part) => part.trim()).filter(Boolean);
 const statusLabel = (status: string) => status === "PENDING" ? "À espera de revisão" : status === "APPROVED" ? "Publicado" : "Precisa de alterações";
 const profileStatusLabel = (status: string) => status === "ACTIVE" ? "Perfil activo" : status === "SUSPENDED" ? "Perfil suspenso" : "Perfil em revisão";
 
 export default function VendorPortal() {
-  const [data, setData] = useState<PortalData>({ vendors: [], claims: [] });
+  const [data, setData] = useState<PortalData>({ vendors: [], claims: [], inquiries: [] });
   const [selectedId, setSelectedId] = useState("");
   const [description, setDescription] = useState("");
   const [servicesText, setServicesText] = useState("");
@@ -35,6 +36,8 @@ export default function VendorPortal() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [quoteAmounts, setQuoteAmounts] = useState<Record<string, string>>({});
+  const [quoteNotes, setQuoteNotes] = useState<Record<string, string>>({});
 
   const refresh = async () => {
     const next = await api<PortalData>("/vendor-portal");
@@ -110,6 +113,16 @@ export default function VendorPortal() {
     await action(() => api(`/vendor-portal/${selected.id}/reviews/${review.id}/response`, { method: "POST", body: JSON.stringify({ response: replyDrafts[review.id].trim() }) }), "Resposta enviada para revisão antes de ser publicada.");
     setReplyDrafts((current) => ({ ...current, [review.id]: "" }));
   }
+  async function submitInquiryResponse(event: FormEvent, inquiry: Inquiry) {
+    event.preventDefault();
+    await action(() => api(`/vendor-portal/inquiries/${inquiry.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        quotedAmount: quoteAmounts[inquiry.id] === "" || quoteAmounts[inquiry.id] === undefined ? null : Number(quoteAmounts[inquiry.id]),
+        responseNote: quoteNotes[inquiry.id]?.trim() || null,
+      }),
+    }), "Resposta enviada. O cliente vai recebê-la na área do evento.");
+  }
   if (loading) return <main className="catalog-page"><p>A carregar a área de fornecedor…</p></main>;
   if (error && !data.vendors.length && !data.claims.length) return <main className="catalog-page"><a className="planner-back" href="/">← Início</a><section className="catalog-empty"><h1>Área de fornecedor</h1><p>{error}</p><a className="button button-primary" href="/entrar">Entrar na conta</a></section></main>;
 
@@ -117,6 +130,7 @@ export default function VendorPortal() {
     <a className="planner-back" href="/dashboard">← Dashboard</a>
     <header className="vendor-portal-heading"><div><p className="eyebrow">Espaço do prestador</p><h1>Área de fornecedor</h1><p>Actualiza o perfil e o portefólio. O conteúdo novo só aparece publicamente depois da revisão.</p></div>{selected && <a className="button button-outline" href={`/fornecedores/${selected.slug}`} target="_blank" rel="noreferrer">Ver perfil público ↗</a>}</header>
     {(error || notice) && <p className={error ? "form-error" : "vendor-portal-notice"} role={error ? "alert" : "status"}>{error || notice}</p>}
+    {data.inquiries.length > 0 && <section className="dash-panel vendor-inbox"><header><div><p className="eyebrow">Pedidos recebidos</p><h2>Pedidos de informação <span>{data.inquiries.filter(item => item.status === "NEW").length} novos</span></h2></div></header><p>Responde por aqui; a resposta fica registada no evento do cliente e não partilha os contactos dele com terceiros.</p><div className="vendor-inbox-list">{data.inquiries.map(inquiry => <article key={inquiry.id}><header><div><strong>{inquiry.project.title}</strong><small>{inquiry.vendor.name} · {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium" }).format(new Date(inquiry.createdAt))}</small></div><span className={`vendor-request-status ${inquiry.status.toLowerCase()}`}>{inquiry.status === "NEW" ? "Novo" : inquiry.status === "RESPONDED" ? "Respondido" : inquiry.status}</span></header><p>{inquiry.message}</p>{inquiry.project.date && <small>Data do evento: {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(inquiry.project.date))}{inquiry.project.province ? ` · ${inquiry.project.province}` : ""}{inquiry.project.guestEstimate ? ` · ${inquiry.project.guestEstimate} pessoas` : ""}</small>}{inquiry.status !== "HIRED" && inquiry.status !== "CLOSED" && <form onSubmit={event => void submitInquiryResponse(event, inquiry)}><label>Valor proposto (Kz)<input type="number" min="0" step="1" value={quoteAmounts[inquiry.id] ?? (inquiry.quotedAmount == null ? "" : String(inquiry.quotedAmount))} onChange={event => setQuoteAmounts(current => ({ ...current, [inquiry.id]: event.target.value }))} /></label><label>Mensagem para o cliente<textarea maxLength={2000} value={quoteNotes[inquiry.id] ?? inquiry.responseNote ?? ""} onChange={event => setQuoteNotes(current => ({ ...current, [inquiry.id]: event.target.value }))} placeholder="Partilha disponibilidade, condições ou perguntas." /></label><button className="button button-primary" disabled={busy}>{busy ? "A enviar…" : inquiry.status === "RESPONDED" ? "Actualizar resposta" : "Responder ao pedido"}</button></form>}</article>)}</div></section>}
     {data.vendors.length > 0 ? <>
       {data.vendors.length > 1 && <label className="vendor-portal-select">Perfil<select value={selectedId} onChange={e => setSelectedId(e.target.value)}>{data.vendors.map(v => <option key={v.id} value={v.id}>{v.name} · {v.category}</option>)}</select></label>}
       {selected && <>

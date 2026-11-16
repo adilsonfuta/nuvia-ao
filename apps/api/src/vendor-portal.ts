@@ -34,9 +34,10 @@ import {
   Min,
   MinLength,
 } from "class-validator";
-import { VendorClaimStatus } from "@casar/database";
+import { NotificationType, QuoteRequestStatus, VendorClaimStatus } from "@casar/database";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
+import { notifyProjectMembers } from "./notifications";
 
 const storageDirectory = () => resolve(process.env.PORTFOLIO_STORAGE_DIR || join(process.cwd(), "data", "vendor-portfolio"));
 const publicImageUrl = (id: string) => `/api/v1/vendor-portfolio/${id}/image`;
@@ -92,6 +93,10 @@ class PortfolioOrderDto {
 class VendorReviewResponseDto {
   @IsString() @MinLength(8) @MaxLength(1500) response!: string;
 }
+class VendorQuoteResponseDto {
+  @IsOptional() @IsInt() @Min(0) @Max(1000000000000) quotedAmount?: number | null;
+  @IsOptional() @IsString() @MaxLength(2000) responseNote?: string | null;
+}
 
 @ApiTags("Área de fornecedores")
 @ApiCookieAuth("casar_session")
@@ -109,7 +114,7 @@ export class VendorPortalController {
 
   @Get()
   async profiles(@CurrentUser() user: SessionUser) {
-    const [vendors, claims] = await Promise.all([
+    const [vendors, claims, inquiries] = await Promise.all([
       this.db.vendor.findMany({
         where: { ownerUserId: user.id },
         include: {
@@ -128,8 +133,53 @@ export class VendorPortalController {
         include: { vendor: { select: { id: true, name: true, slug: true, status: true } } },
         orderBy: { createdAt: "desc" },
       }),
+      this.db.quoteRequest.findMany({
+        where: { vendor: { ownerUserId: user.id } },
+        include: {
+          vendor: { select: { id: true, name: true, slug: true, category: true } },
+          project: { select: { id: true, title: true, date: true, province: true, guestEstimate: true } },
+        },
+        orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+        take: 100,
+      }),
     ]);
-    return { vendors: vendors.map((vendor) => ({ ...vendor, reviews: vendor.reviews.map((review) => ({ ...review, reviewerName: review.isAnonymous ? null : review.reviewer?.name ?? null, reviewer: undefined })) })), claims };
+    return { vendors: vendors.map((vendor) => ({ ...vendor, reviews: vendor.reviews.map((review) => ({ ...review, reviewerName: review.isAnonymous ? null : review.reviewer?.name ?? null, reviewer: undefined })) })), claims, inquiries };
+  }
+
+  @Patch("inquiries/:requestId")
+  async respondToInquiry(
+    @Param("requestId") requestId: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: VendorQuoteResponseDto,
+  ) {
+    const request = await this.db.quoteRequest.findFirst({
+      where: { id: requestId, vendor: { ownerUserId: user.id } },
+      include: { vendor: { select: { name: true } }, review: true },
+    });
+    if (!request) throw new NotFoundException("Pedido não encontrado.");
+    if (request.status === QuoteRequestStatus.HIRED || request.status === QuoteRequestStatus.CLOSED)
+      throw new BadRequestException("Este pedido já está fechado e não pode receber uma nova resposta.");
+    const updated = await this.db.quoteRequest.update({
+      where: { id: request.id },
+      data: {
+        status: QuoteRequestStatus.RESPONDED,
+        quotedAmount: body.quotedAmount === undefined ? request.quotedAmount : body.quotedAmount,
+        responseNote: body.responseNote?.trim() || null,
+        respondedAt: request.respondedAt ?? new Date(),
+      },
+      select: { id: true, projectId: true, vendorId: true, status: true, quotedAmount: true, responseNote: true, respondedAt: true },
+    });
+    await notifyProjectMembers(this.db, request.projectId, {
+      type: NotificationType.QUOTE_RESPONSE_RECEIVED,
+      key: `quote-response:${request.id}:${updated.respondedAt?.toISOString()}`,
+      sourceId: request.id,
+      title: `Resposta de ${request.vendor.name}`,
+      body: body.quotedAmount === undefined || body.quotedAmount === null
+        ? "O fornecedor respondeu ao teu pedido de informação."
+        : `O fornecedor respondeu com uma proposta de ${new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA", maximumFractionDigits: 0 }).format(body.quotedAmount)}.`,
+      href: `/dashboard?tab=fornecedores&event=${encodeURIComponent(request.projectId)}`,
+    });
+    return updated;
   }
 
   @Post(":id/reviews/:reviewId/response")

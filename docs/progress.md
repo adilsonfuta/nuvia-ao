@@ -23,7 +23,7 @@
 - Datas e horas do programa e prazos usam o fuso de Luanda ao criar e editar, evitando desvios conforme o fuso do dispositivo.
 - Gestão de convidados com contagem de convites e pessoas previstas/confirmadas, pesquisa e filtros por RSVP, grupo e mesa, edição directa, importação CSV com deduplicação até 500 registos e exportação CSV.
 - Ocupação visual das mesas com lugares disponíveis e aviso de excesso; confirmações contam pessoas reais, respostas pendentes reservam o limite do convite e recusas libertam lugares.
-- Pesquisa de fornecedores, favoritos e pedidos de informação guardados no projecto. Pedidos ainda não são entregues ao fornecedor.
+- Pesquisa de fornecedores, favoritos e pedidos de informação no projecto. Para perfis activos associados a uma conta, os pedidos aparecem na caixa de entrada do fornecedor e as respostas notificam os membros do evento; outros perfis continuam com seguimento manual.
 - Espaço de fornecedores por evento com favoritos comparáveis por categoria, localização e faixa de preço; o contexto acompanha a navegação do dashboard ao directório e ao perfil.
 - Formulário público de candidatura de fornecedores, com registo na base de dados, validação, fila administrativa e conversão para perfil pendente de aprovação.
 - Backoffice protegido para a equipa lista fornecedores em todos os estados, permite editar perfis, aprovar, suspender com motivo e reactivar; as decisões ficam auditadas.
@@ -48,6 +48,7 @@
 - DTOs de actualização administrativa de guias, conservatórias e candidaturas validados em runtime.
 - Script de backup PostgreSQL e lista de preparação para produção documentados; ainda dependem de agendamento, armazenamento seguro e teste de recuperação no ambiente de alojamento.
 - Migrações aplicadas para tipo de projecto, limite de acompanhantes e estilos dos convites. Dados existentes continuam nas tabelas e são classificados por momentos já guardados.
+- Migrações de cifragem dos tokens RSVP e caixa de entrada/notificações de fornecedores aplicadas à base PostgreSQL local.
 
 ## Verificação
 
@@ -62,9 +63,9 @@
 
 ## Ainda por ligar antes de produção
 
-- Resposta de fornecedores a pedidos e notificações. Pedidos continuam sem entrega automática ou confirmação de recebimento.
+- Piloto com fornecedores reais: a caixa de entrada e notificações funcionam para perfis activos associados a uma conta, mas a plataforma ainda não tem fornecedores reais confirmados nem canal externo de email/WhatsApp.
 - Em produção, configurar `PORTFOLIO_STORAGE_DIR` para um volume persistente com backup. O armazenamento local já funciona no desenvolvimento, mas um disco efémero de contentor não é adequado para publicação.
 - Convites por email/WhatsApp e gestão de entregas. A partilha actual é manual por link ou QR.
-- Recuperação de palavra-passe, pagamentos, notificações, check-in QR e disponibilidade de espaços.
-- Testes de browser ponta a ponta, pipeline CI, monitorização externa, agendamento e recuperação testada de backups, política de privacidade/termos e revisão editorial contínua da informação civil.
+- Email de recuperação de palavra-passe, pagamentos, check-in QR e disponibilidade de espaços. O fluxo de recuperação não deve ser considerado funcional até configurar um serviço transaccional aprovado.
+- Testes de browser ponta a ponta, activação do pipeline CI no repositório remoto, monitorização externa, agendamento e recuperação testada de backups, política de privacidade/termos e revisão editorial contínua da informação civil.
 - Substituição da fotografia de referência por activos licenciados adequados também a alambamentos e festas.

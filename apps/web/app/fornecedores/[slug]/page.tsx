@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useRef, useState, FormEvent } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { api } from "../../lib/api";
 import { formatAOA } from "../../lib/format";
+import "./vendor-profile.css";
 
 type Vendor = {
   id: string;
@@ -73,6 +74,12 @@ export default function VendorPage() {
   const [claimPending, setClaimPending] = useState(false);
   const [claimNotice, setClaimNotice] = useState("");
   const [claimError, setClaimError] = useState("");
+  const [activePortfolioIndex, setActivePortfolioIndex] = useState<number | null>(null);
+  const imageOpener = useRef<HTMLElement | null>(null);
+  const portfolio = vendor ? [
+    ...vendor.portfolio.map((item) => ({ key: item.id, src: `/api/v1/vendor-portfolio/${item.id}/image`, alt: item.altText, cover: item.isCover })),
+    ...vendor.galleryUrls.map((url, index) => ({ key: `${url}-${index}`, src: url, alt: `Trabalho ${index + 1} publicado por ${vendor.name}`, cover: false })),
+  ] : [];
 
   useEffect(() => {
     api<Vendor>(`/vendors/${slug}`)
@@ -108,6 +115,31 @@ export default function VendorPage() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [searchParams, vendor, signedIn]);
+
+  useEffect(() => {
+    if (activePortfolioIndex === null) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePortfolioViewer();
+      if (portfolio.length > 1 && event.key === "ArrowRight") {
+        setActivePortfolioIndex((index) => index === null ? null : (index + 1) % portfolio.length);
+      }
+      if (portfolio.length > 1 && event.key === "ArrowLeft") {
+        setActivePortfolioIndex((index) => index === null ? null : (index - 1 + portfolio.length) % portfolio.length);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activePortfolioIndex, portfolio.length]);
+
+  function closePortfolioViewer() {
+    setActivePortfolioIndex(null);
+    window.requestAnimationFrame(() => imageOpener.current?.focus());
+  }
 
   function selectWedding(id: string) {
     setWeddingId(id);
@@ -177,15 +209,21 @@ export default function VendorPage() {
   if (!vendor)
     return (
       <main className="catalog-page">
-        <a
-          className="planner-back"
-          href={directoryHref}
-        >
+        <a className="planner-back" href={directoryHref}>
           ← Directório de fornecedores
         </a>
-        <section className="catalog-empty">
-          <h2>{error || "A carregar perfil…"}</h2>
-        </section>
+        {error ? (
+          <section className="vendor-profile-state" role="alert">
+            <span aria-hidden="true">!</span><h1>Não foi possível abrir este perfil.</h1>
+            <p>Verifica a ligação e tenta novamente. O directório continua disponível.</p>
+            <button className="button button-primary" onClick={() => window.location.reload()}>Tentar novamente</button>
+          </section>
+        ) : (
+          <section className="vendor-profile-state" role="status" aria-busy="true">
+            <span className="vendor-profile-spinner" aria-hidden="true" /><h1>A preparar o perfil</h1>
+            <p>A carregar informações do prestador…</p>
+          </section>
+        )}
       </main>
     );
   const capacity =
@@ -206,11 +244,6 @@ export default function VendorPage() {
   if (projectContext) quoteParams.set("projectId", projectContext);
   quoteParams.set("returnTo", directoryHref);
   const quoteDestination = `/fornecedores/${vendor.slug}?${quoteParams.toString()}#pedido`;
-  const portfolio = [
-    ...vendor.portfolio.map((item) => ({ key: item.id, src: `/api/v1/vendor-portfolio/${item.id}/image`, alt: item.altText, cover: item.isCover })),
-    ...vendor.galleryUrls.map((url, index) => ({ key: `${url}-${index}`, src: url, alt: `Trabalho ${index + 1} publicado por ${vendor.name}`, cover: false })),
-  ];
-
   return (
     <main className="catalog-page vendor-profile-page">
       <a
@@ -219,7 +252,7 @@ export default function VendorPage() {
       >
         ← Directório de fornecedores
       </a>
-      <article className="vendor-detail">
+      <article className="vendor-detail vendor-detail-layout">
         <header className="vendor-profile-header">
           <span className="vendor-profile-monogram" aria-hidden="true">
             {vendor.name.slice(0, 1)}
@@ -241,6 +274,7 @@ export default function VendorPage() {
             ) : (
               <span className="unverified-badge">Perfil por rever</span>
             )}
+            <a className="button button-primary vendor-header-cta" href="#pedido">Pedir informação <span aria-hidden="true">↓</span></a>
           </div>
         </header>
 
@@ -256,7 +290,9 @@ export default function VendorPage() {
           </p>
         )}
 
-        <section className="vendor-profile-section">
+        <div className="vendor-profile-columns">
+        <div className="vendor-profile-main">
+        <section className="vendor-profile-section vendor-about">
           <h2>Sobre o serviço</h2>
           <p>
             {vendor.description ||
@@ -264,7 +300,7 @@ export default function VendorPage() {
           </p>
         </section>
 
-        <section className="vendor-profile-section">
+        <section className="vendor-profile-section vendor-services">
           <h2>Serviços</h2>
           {vendor.services.length ? (
             <ul className="vendor-service-list">
@@ -280,7 +316,7 @@ export default function VendorPage() {
           )}
         </section>
 
-        <section className="vendor-facts-grid">
+        <section className="vendor-facts-grid" aria-label="Informações principais">
           <article>
             <small>Localização</small>
             <strong>
@@ -321,7 +357,7 @@ export default function VendorPage() {
           </article>
         </section>
 
-        <section className="vendor-profile-section">
+        <section className="vendor-profile-section vendor-portfolio">
           <div className="vendor-section-heading">
             <h2>Portefólio</h2>
             <span>
@@ -331,13 +367,16 @@ export default function VendorPage() {
           </div>
           {portfolio.length ? (
             <div className="vendor-gallery">
-              {portfolio.map((image) => (
-                <a
+              {portfolio.map((image, index) => (
+                <button
+                  type="button"
                   className={image.cover ? "cover" : ""}
-                  href={image.src}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   key={image.key}
+                  aria-label={`Ampliar imagem ${index + 1}: ${image.alt}`}
+                  onClick={(event) => {
+                    imageOpener.current = event.currentTarget;
+                    setActivePortfolioIndex(index);
+                  }}
                 >
                   <img
                     src={image.src}
@@ -345,7 +384,7 @@ export default function VendorPage() {
                     loading="lazy"
                   />
                   {image.cover && <span>Capa do portefólio</span>}
-                </a>
+                </button>
               ))}
             </div>
           ) : (
@@ -378,7 +417,7 @@ export default function VendorPage() {
           </p>
         </section>
 
-        <section className="vendor-profile-section">
+        <section className="vendor-profile-section vendor-reviews">
           <h2>Avaliações</h2>
           {vendor.reviewSummary.count ? <>
             <div className="vendor-rating-summary"><strong>{vendor.reviewSummary.average?.toFixed(1)} <span aria-hidden="true">★</span></strong><span>{vendor.reviewSummary.count} {vendor.reviewSummary.count === 1 ? "avaliação" : "avaliações"} de serviços contratados</span></div>
@@ -386,7 +425,10 @@ export default function VendorPage() {
           </> : <p className="profile-missing">Ainda não há avaliações de serviços contratados. Não apresentamos classificações demonstrativas.</p>}
         </section>
 
-        <section className="dash-panel quote-panel" id="pedido">
+        </div>
+
+        <section className="dash-panel quote-panel vendor-contact-card" id="pedido">
+          <p className="eyebrow">Próximo passo</p>
           <h2>Pedir informação</h2>
           <p className="quote-disclosure">
             O pedido fica guardado na tua conta. Depois podes abrir o teu email
@@ -532,7 +574,35 @@ export default function VendorPage() {
             </p>
           )}
         </section>
+        </div>
       </article>
+      {activePortfolioIndex !== null && portfolio[activePortfolioIndex] && (
+        <div
+          className="vendor-lightbox-overlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closePortfolioViewer();
+          }}
+        >
+          <section className="vendor-lightbox" role="dialog" aria-modal="true" aria-labelledby="vendor-lightbox-title">
+            <header className="vendor-lightbox-header">
+              <div>
+                <p className="eyebrow">Portefólio de {vendor.name}</p>
+                <h2 id="vendor-lightbox-title">{portfolio[activePortfolioIndex].alt}</h2>
+              </div>
+              <button className="vendor-lightbox-close" type="button" onClick={closePortfolioViewer} autoFocus aria-label="Fechar imagem ampliada">×</button>
+            </header>
+            <div className="vendor-lightbox-stage">
+              {portfolio.length > 1 && <button className="vendor-lightbox-arrow previous" type="button" aria-label="Imagem anterior" onClick={() => setActivePortfolioIndex((activePortfolioIndex - 1 + portfolio.length) % portfolio.length)}>‹</button>}
+              <img src={portfolio[activePortfolioIndex].src} alt={portfolio[activePortfolioIndex].alt} />
+              {portfolio.length > 1 && <button className="vendor-lightbox-arrow next" type="button" aria-label="Imagem seguinte" onClick={() => setActivePortfolioIndex((activePortfolioIndex + 1) % portfolio.length)}>›</button>}
+            </div>
+            <footer className="vendor-lightbox-footer">
+              <span>{activePortfolioIndex + 1} de {portfolio.length}{portfolio[activePortfolioIndex].cover ? " · Capa do portefólio" : ""}</span>
+              {portfolio.length > 1 && <small>Usa ← e → para percorrer as imagens</small>}
+            </footer>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

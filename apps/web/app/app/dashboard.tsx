@@ -22,6 +22,7 @@ import {
 import { EventManager } from "./event-manager";
 import { GuestsWorkspace } from "./guests-workspace";
 import { ReportsPanel } from "./reports-panel";
+import { NotificationCenter } from "./notification-center";
 import type { ProjectKind, ProjectSummary } from "@casar/contracts";
 
 type User = { id: string; email: string; name: string | null; role?: "USER" | "MODERATOR" | "ADMIN" };
@@ -155,14 +156,14 @@ const ANGOLA_PROVINCES = [
   "Zaire",
 ];
 const DASHBOARD_TABS: { key: Tab; label: string }[] = [
-  { key: "events", label: "Os meus eventos" },
   { key: "overview", label: "Visão geral" },
+  { key: "events", label: "Os meus eventos" },
   { key: "planning", label: "Planeamento" },
   { key: "budget", label: "Orçamento" },
   { key: "vendors", label: "Fornecedores" },
+  { key: "program", label: "Programa" },
   { key: "guests", label: "Convidados" },
   { key: "invitation", label: "Convites digitais" },
-  { key: "program", label: "Programa" },
   { key: "team", label: "Colaboração" },
   { key: "reports", label: "Relatórios" },
   { key: "settings", label: "Definições" },
@@ -1051,6 +1052,20 @@ export default function Dashboard() {
     await api("/auth/logout", { method: "POST" }).catch(() => undefined);
     router.push("/entrar");
   }
+  function openNotification(href: string) {
+    const destination = new URL(href, window.location.origin);
+    if (destination.origin !== window.location.origin || destination.pathname !== "/dashboard") return;
+    const nextTab = tabFromUrl(destination.searchParams.get("tab"));
+    const nextProjectId = destination.searchParams.get("event") || "";
+    window.history.pushState(null, "", `${destination.pathname}${destination.search}${destination.hash}`);
+    if (nextTab) setTab(nextTab);
+    if (nextProjectId && nextProjectId !== selectedRef.current) {
+      void loadDetail(nextProjectId).catch(() => setError("Não foi possível abrir o evento desta notificação."));
+    } else if (!nextProjectId && selectedRef.current) {
+      setSelected("");
+      setData(null);
+    }
+  }
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     if (changingPassword) return;
@@ -1274,6 +1289,7 @@ export default function Dashboard() {
         <a className="brand dashboard-brand" href="/dashboard" aria-label="Nuvia — voltar à dashboard">
           <Image className="nuvia-dashboard-logo" src="/brand/nuvia-logo.png" alt="Nuvia" width={240} height={75} priority />
         </a>
+        <NotificationCenter onOpen={openNotification} />
         <nav aria-label="Navegação do projecto">
           {DASHBOARD_TABS.filter(
             (item) => item.key !== "events" || projects.length > 0,

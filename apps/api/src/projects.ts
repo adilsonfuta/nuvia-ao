@@ -18,6 +18,7 @@ import {
   EventType,
   ExpenseStatus,
   InvitationTheme,
+  NotificationType,
   ProjectKind,
   QuoteRequestStatus,
   TaskPriority,
@@ -45,6 +46,8 @@ import {
 import { Type } from "class-transformer";
 import { DatabaseService } from "./database";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
+import { dismissSourceNotifications, notifyProjectMembers, notifyUser } from "./notifications";
+import { createRsvpTokenCredentials, exposeGuestRsvpToken, hashRsvpToken, revealGuestRsvpToken } from "./rsvp-token";
 
 const projectTaskTemplates: Record<ProjectKind, string[]> = {
   WEDDING: [
@@ -231,7 +234,7 @@ class AddMemberDto {
 }
 const RsvpDecision = { ACCEPTED: "ACCEPTED", DECLINED: "DECLINED" } as const;
 class RsvpDto {
-  @IsString() token!: string;
+  @IsString() @MinLength(24) @MaxLength(180) token!: string;
   @IsEnum(RsvpDecision) status!: "ACCEPTED" | "DECLINED";
   @IsOptional() @IsInt() @Min(1) @Max(10) partySize?: number;
   @IsOptional() @IsString() @MaxLength(400) note?: string;
@@ -455,6 +458,7 @@ export class ProjectsController {
     ).length;
     return {
       ...project,
+      guests: await Promise.all(project.guests.map((guest) => exposeGuestRsvpToken(this.db, guest))),
       metrics: {
         tasksDone: project.tasks.filter((x) => x.status === "DONE").length,
         tasksTotal: project.tasks.length,
@@ -594,7 +598,7 @@ export class ProjectsController {
         "O responsável seleccionado não faz parte deste evento.",
       );
     const { assigneeUserId, ...task } = body;
-    return this.db.task.create({
+    const created = await this.db.task.create({
       data: {
         ...task,
         status: body.status ?? "TODO",
@@ -606,6 +610,17 @@ export class ProjectsController {
         assignedTo: { select: { id: true, name: true, email: true } },
       },
     });
+    if (created.assigneeUserId && created.assigneeUserId !== user.id) {
+      await notifyUser(this.db, created.assigneeUserId, id, {
+        type: NotificationType.TASK_ASSIGNED,
+        key: `task-assigned:${created.id}:${created.assigneeUserId}:${created.createdAt.toISOString()}`,
+        sourceId: created.id,
+        title: "Tarefa atribuída a ti",
+        body: created.title,
+        href: `/dashboard?tab=planeamento&event=${encodeURIComponent(id)}`,
+      });
+    }
+    return created;
   }
   @Patch(":id/tasks/:taskId") async updateTask(
     @Param("id") id: string,
@@ -625,6 +640,11 @@ export class ProjectsController {
       throw new BadRequestException(
         "O responsável seleccionado não faz parte deste evento.",
       );
+    const previous = await this.db.task.findFirst({
+      where: { id: taskId, projectId: id },
+      select: { assigneeUserId: true, dueAt: true },
+    });
+    if (!previous) throw new NotFoundException("Tarefa não encontrada.");
     const result = await this.db.task.updateMany({
       where: { id: taskId, projectId: id },
       data: {
@@ -638,12 +658,35 @@ export class ProjectsController {
       },
     });
     if (!result.count) throw new NotFoundException("Tarefa não encontrada.");
-    return this.db.task.findUnique({
+    const updated = await this.db.task.findUnique({
       where: { id: taskId },
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
       },
     });
+    if (
+      updated?.assigneeUserId &&
+      updated.assigneeUserId !== previous.assigneeUserId &&
+      updated.assigneeUserId !== user.id
+    ) {
+      await notifyUser(this.db, updated.assigneeUserId, id, {
+        type: NotificationType.TASK_ASSIGNED,
+        key: `task-assigned:${updated.id}:${updated.assigneeUserId}:${Date.now()}`,
+        sourceId: updated.id,
+        title: "Tarefa atribuída a ti",
+        body: updated.title,
+        href: `/dashboard?tab=planeamento&event=${encodeURIComponent(id)}`,
+      });
+    }
+    if (
+      updated &&
+      (updated.status === "DONE" ||
+        (body.dueAt !== undefined &&
+          updated.dueAt?.getTime() !== previous.dueAt?.getTime()))
+    ) {
+      await dismissSourceNotifications(this.db, id, NotificationType.TASK_DUE, taskId);
+    }
+    return updated;
   }
   @Delete(":id/tasks/:taskId") async deleteTask(
     @Param("id") id: string,
@@ -655,6 +698,7 @@ export class ProjectsController {
       where: { id: taskId, projectId: id },
     });
     if (!result.count) throw new NotFoundException("Tarefa não encontrada.");
+    await dismissSourceNotifications(this.db, id, NotificationType.TASK_DUE, taskId);
     return { ok: true };
   }
   @Get(":id/guests") async guests(
@@ -662,11 +706,12 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.owned(id, user.id);
-    return this.db.guest.findMany({
+    const guests = await this.db.guest.findMany({
       where: { projectId: id },
       include: { rsvps: true },
       orderBy: { name: "asc" },
     });
+    return Promise.all(guests.map((guest) => exposeGuestRsvpToken(this.db, guest)));
   }
   @Post(":id/guests") async addGuest(
     @Param("id") id: string,
@@ -682,9 +727,11 @@ export class ProjectsController {
         undefined,
         partySize,
       );
-    return this.db.guest.create({
-      data: { ...body, maxPartySize: partySize, projectId: id },
+    const credentials = createRsvpTokenCredentials();
+    const guest = await this.db.guest.create({
+      data: { ...body, maxPartySize: partySize, projectId: id, rsvpTokenHash: credentials.rsvpTokenHash, rsvpTokenCiphertext: credentials.rsvpTokenCiphertext },
     });
+    return exposeGuestRsvpToken(this.db, guest);
   }
   @Post(":id/guests/import") async importGuests(
     @Param("id") id: string,
@@ -724,6 +771,8 @@ export class ProjectsController {
       groupName: string | null;
       maxPartySize: number;
       projectId: string;
+      rsvpTokenHash: string;
+      rsvpTokenCiphertext: string;
     }> = [];
     let skippedCount = 0;
     for (const guest of body.guests) {
@@ -748,6 +797,7 @@ export class ProjectsController {
         groupName: guest.groupName?.trim() || null,
         maxPartySize: guest.maxPartySize ?? 1,
         projectId: id,
+        ...((({ token: _token, ...stored }) => stored)(createRsvpTokenCredentials())),
       });
     }
     if (records.length) await this.db.guest.createMany({ data: records });
@@ -789,11 +839,12 @@ export class ProjectsController {
             ? guest.rsvps[0].partySize
             : (body.maxPartySize ?? guest.maxPartySize),
       );
-    return this.db.guest.update({
+    const updated = await this.db.guest.update({
       where: { id: guestId },
       data: body,
       include: { rsvps: true, seatingTable: true },
     });
+    return exposeGuestRsvpToken(this.db, updated);
   }
   @Get(":id/tables") async tables(
     @Param("id") id: string,
@@ -916,6 +967,11 @@ export class ProjectsController {
     @Body() body: UpdateExpenseDto,
   ) {
     await this.owned(id, user.id, true);
+    const previous = await this.db.expense.findFirst({
+      where: { id: expenseId, projectId: id },
+      select: { dueAt: true },
+    });
+    if (!previous) throw new NotFoundException("Despesa não encontrada.");
     if (
       body.taskId &&
       !(await this.db.task.findFirst({
@@ -939,10 +995,19 @@ export class ProjectsController {
       },
     });
     if (!result.count) throw new NotFoundException("Despesa não encontrada.");
-    return this.db.expense.findUnique({
+    const updated = await this.db.expense.findUnique({
       where: { id: expenseId },
       include: { task: { select: { id: true, title: true } } },
     });
+    if (
+      updated &&
+      (updated.status === "PAID" ||
+        (body.dueAt !== undefined &&
+          updated.dueAt?.getTime() !== previous.dueAt?.getTime()))
+    ) {
+      await dismissSourceNotifications(this.db, id, NotificationType.EXPENSE_DUE, expenseId);
+    }
+    return updated;
   }
   @Delete(":id/budget/expenses/:expenseId") async deleteExpense(
     @Param("id") id: string,
@@ -963,6 +1028,7 @@ export class ProjectsController {
           data: { status: "RESPONDED" },
         });
     });
+    await dismissSourceNotifications(this.db, id, NotificationType.EXPENSE_DUE, expense.id);
     return { ok: true };
   }
   @Post(":id/invitations") async publishInvitation(
@@ -1156,12 +1222,26 @@ export class ProjectsController {
       throw new BadRequestException(
         "O acesso de responsável não pode ser alterado por este formulário.",
       );
-    return this.db.projectMember.upsert({
+    const membership = await this.db.projectMember.upsert({
       where: { projectId_userId: { projectId: id, userId: invited.id } },
       create: { projectId: id, userId: invited.id, role: body.role },
       update: { role: body.role },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
+    if (!existing || existing.role !== body.role) {
+      const project = await this.db.eventProject.findUnique({
+        where: { id },
+        select: { title: true },
+      });
+      await notifyUser(this.db, invited.id, id, {
+        type: NotificationType.PROJECT_SHARED,
+        key: `project-shared:${id}:${invited.id}:${Date.now()}`,
+        title: existing ? "Acesso ao evento actualizado" : "Partilharam um evento contigo",
+        body: `${user.name || user.email} ${existing ? "actualizou o teu acesso a" : "partilhou contigo"} ${project?.title || "um evento"}.`,
+        href: `/dashboard?tab=eventos&event=${encodeURIComponent(id)}`,
+      });
+    }
+    return membership;
   }
   @Delete(":id/members/:userId") async removeMember(
     @Param("id") id: string,
@@ -1258,18 +1338,34 @@ export class PublicInvitationController {
     });
     if (!inv || !inv.isPublic)
       throw new NotFoundException("Convite não encontrado.");
-    const guest = token
-      ? await this.db.guest.findUnique({
-          where: { rsvpToken: token },
+    let guest = token && token.length <= 180
+      ? await this.db.guest.findFirst({
+          where: { OR: [
+            { rsvpTokenHash: hashRsvpToken(token) },
+            { rsvpTokenPreviousHash: hashRsvpToken(token), rsvpTokenPreviousExpiresAt: { gt: new Date() } },
+          ] },
           select: {
-            name: true,
-            projectId: true,
-            maxPartySize: true,
+            id: true, name: true, projectId: true, maxPartySize: true,
+            rsvpTokenHash: true, rsvpTokenCiphertext: true, rsvpTokenLegacy: true,
+            rsvpTokenPreviousHash: true, rsvpTokenPreviousExpiresAt: true,
             seatingTable: { select: { name: true } },
             rsvps: { where: { eventKey: "all" } },
           },
         })
       : null;
+    if (!guest && token && token.length <= 180) {
+      guest = await this.db.guest.findUnique({
+        where: { rsvpTokenLegacy: token },
+        select: {
+          id: true, name: true, projectId: true, maxPartySize: true,
+          rsvpTokenHash: true, rsvpTokenCiphertext: true, rsvpTokenLegacy: true,
+          rsvpTokenPreviousHash: true, rsvpTokenPreviousExpiresAt: true,
+          seatingTable: { select: { name: true } },
+          rsvps: { where: { eventKey: "all" } },
+        },
+      });
+    }
+    if (guest) await revealGuestRsvpToken(this.db, guest);
     return {
       ...inv,
       recipient:
@@ -1290,13 +1386,17 @@ export class PublicInvitationController {
     const inv = await this.db.invitation.findUnique({ where: { slug } });
     if (!inv || !inv.isPublic)
       throw new NotFoundException("Convite não encontrado.");
-    const guest = await this.db.guest.findUnique({
-      where: { rsvpToken: body.token },
-    });
+    const tokenHash = hashRsvpToken(body.token);
+    let guest = await this.db.guest.findFirst({ where: { OR: [
+      { rsvpTokenHash: tokenHash },
+      { rsvpTokenPreviousHash: tokenHash, rsvpTokenPreviousExpiresAt: { gt: new Date() } },
+    ] } });
+    if (!guest) guest = await this.db.guest.findUnique({ where: { rsvpTokenLegacy: body.token } });
     if (!guest || guest.projectId !== inv.projectId)
       throw new NotFoundException(
         "Este convite individual não foi encontrado.",
       );
+    await revealGuestRsvpToken(this.db, guest);
     if (
       body.status === "ACCEPTED" &&
       (body.partySize ?? 1) > guest.maxPartySize
@@ -1304,7 +1404,11 @@ export class PublicInvitationController {
       throw new BadRequestException(
         `Este convite permite confirmar até ${guest.maxPartySize} pessoa(s).`,
       );
-    return this.db.rSVP.upsert({
+    const existing = await this.db.rSVP.findUnique({
+      where: { guestId_eventKey: { guestId: guest.id, eventKey: "all" } },
+      select: { status: true, partySize: true },
+    });
+    const response = await this.db.rSVP.upsert({
       where: { guestId_eventKey: { guestId: guest.id, eventKey: "all" } },
       create: {
         guestId: guest.id,
@@ -1319,5 +1423,26 @@ export class PublicInvitationController {
         note: body.note,
       },
     });
+    if (
+      !existing ||
+      existing.status !== response.status ||
+      existing.partySize !== response.partySize
+    ) {
+      const answer =
+        response.status === "ACCEPTED"
+          ? `confirmou presença${response.partySize > 1 ? ` de ${response.partySize} pessoas` : ""}`
+          : "indicou que não poderá estar presente";
+      await notifyProjectMembers(this.db, inv.projectId, {
+        type: NotificationType.RSVP_RECEIVED,
+        key: `rsvp:${guest.id}:${response.updatedAt.toISOString()}`,
+        sourceId: guest.id,
+        title: existing
+          ? "Resposta de convidado actualizada"
+          : "Nova confirmação de presença",
+        body: `${guest.name} ${answer}.`,
+        href: `/dashboard?tab=convidados&event=${encodeURIComponent(inv.projectId)}`,
+      });
+    }
+    return response;
   }
 }

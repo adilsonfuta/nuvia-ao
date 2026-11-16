@@ -20,6 +20,8 @@ Para restaurar um dump validado num banco vazio: `pg_restore --no-owner --no-acl
 - O endpoint `/api/v1/health` verifica ligação à base de dados. Configurar monitorização externa, alertas para estados diferentes de `ok`, erros HTTP, latência e espaço em disco.
 - Recolher logs sem palavras-passe, cookies de sessão, tokens de RSVP, conteúdo de mensagens ou dados completos de convidados.
 - Definir responsáveis por incidentes, restauração, migrações e rotação de segredos antes de abrir o serviço ao público.
+- Configurar `RSVP_TOKEN_ENCRYPTION_KEY` com 32 bytes aleatórios codificados em Base64 (`openssl rand -base64 32`), guardar fora do banco e incluí-la no backup seguro de segredos. A chave é necessária para voltar a mostrar links RSVP existentes; não a rodar sem re-cifrar os tokens.
+- Aplicar a migration `20261115220000_secure_rsvp_tokens` antes de iniciar a nova API. No arranque, tokens antigos são substituídos por tokens aleatórios e o hash antigo continua aceite por 90 dias para evitar quebrar links que já foram partilhados.
 - O limitador de pedidos usa PostgreSQL partilhado entre instâncias. Se a API estiver atrás de proxy, definir `TRUST_PROXY_HOPS` apenas para a cadeia controlada que substitui `X-Forwarded-For`; não confiar num cabeçalho encaminhado directamente por clientes.
 
 ## Fornecedores e informação civil
@@ -33,5 +35,7 @@ Para restaurar um dump validado num banco vazio: `pg_restore --no-owner --no-acl
 
 - Aplicar migrations num ambiente de staging e verificar backup antes de produção.
 - Configurar HTTPS, origem pública, `API_INTERNAL_URL`, `WEB_ORIGIN`, segredos fortes e `TRUST_PROXY_HOPS` conforme a infraestrutura.
+- Definir `NEXT_PUBLIC_SITE_URL` com a origem canónica HTTPS para metadados e sitemap; sem esta variável o sitemap permanece vazio para não publicar URLs locais.
 - Executar testes automatizados, percursos no browser com contas de teste, revisão de acessos administrativos e teste de recuperação.
-- A plataforma ainda não entrega pedidos ou convites por email/WhatsApp, não processa pagamentos e não tem portal de resposta de fornecedores. Comunicar estas capacidades como pendentes até existirem serviços configurados e monitorizados.
+- A plataforma não envia convites por email/WhatsApp nem processa pagamentos. Pedidos podem chegar à caixa de entrada interna apenas quando o fornecedor tem perfil activo associado a uma conta; perfis demonstrativos ou sem responsável continuam a exigir contacto manual.
+- A recuperação de palavra-passe precisa de um serviço transaccional de email e domínio verificado. O envio de links de recuperação para um serviço externo foi bloqueado pela revisão automática nesta etapa; não activar essa integração sem a aprovação necessária e uma configuração segura.
