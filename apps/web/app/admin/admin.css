@@ -1,0 +1,200 @@
+.admin-page > .admin-grid,
+.admin-page > .admin-legal-grid {
+  display: grid;
+  align-items: start;
+  gap: 16px;
+}
+
+.admin-page > .admin-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-page > .admin-grid.list-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.admin-page > .admin-grid.with-form {
+  grid-template-columns: minmax(0, 1.45fr) minmax(310px, 0.82fr);
+}
+
+.admin-page > .admin-legal-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-page > .admin-legal-grid > section:last-child {
+  grid-column: 1 / -1;
+}
+
+.admin-page > .admin-grid > *,
+.admin-page > .admin-legal-grid > * {
+  min-width: 0;
+}
+
+.admin-page .admin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #eee9df;
+}
+
+.admin-page .admin-row > span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-page .admin-row > span > strong {
+  color: var(--forest);
+  font: 700 14px/1.35 var(--serif);
+}
+
+.admin-page .admin-row > span > small {
+  color: #667064;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.admin-page .admin-row > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 430px;
+}
+
+.admin-page .admin-row > div button {
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid #e4dfd3;
+  border-radius: 7px;
+  background: #fffefa;
+  color: #495649;
+  font: 600 9px/1.25 var(--sans);
+  cursor: pointer;
+}
+
+.admin-page .admin-row > div button:hover:not(:disabled) {
+  border-color: #bdc9b2;
+  background: #f0f4eb;
+  color: var(--forest);
+}
+
+.admin-page .admin-row > div button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.admin-page .admin-row > div a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 5px;
+  color: #795e2c;
+  font-size: 10px;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.admin-page .admin-vendor-item .admin-row {
+  padding: 15px 0;
+  border-bottom: 0;
+}
+
+.admin-page .admin-vendor-item {
+  border-bottom: 1px solid #eee9df;
+}
+
+.admin-page .admin-vendor-item:last-child,
+.admin-page .admin-row:last-child {
+  border-bottom: 0;
+}
+
+.admin-page > .admin-legal-grid .subform {
+  margin-top: 14px;
+  padding-top: 16px;
+  border-top: 1px solid #ebe6dc;
+}
+
+.admin-page > .admin-legal-grid .subform h3 {
+  margin: 0;
+  color: var(--forest);
+  font: 700 17px var(--serif);
+}
+
+.admin-page .admin-applications-panel > h2,
+.admin-page .admin-history-panel > h2,
+.admin-page > .admin-grid > .dash-panel > h2,
+.admin-page > .admin-legal-grid > .dash-panel > h2 {
+  margin: 0 0 8px;
+  color: var(--forest);
+  font: 700 21px var(--serif);
+}
+
+.admin-page .admin-applications-panel > .empty-copy {
+  line-height: 1.55;
+}
+
+@media (max-width: 900px) {
+  .admin-page > .admin-grid.with-form {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+  }
+
+  .admin-page > .admin-legal-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-page > .admin-legal-grid > section:last-child {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-page > .admin-grid,
+  .admin-page > .admin-grid.with-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-page .admin-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .admin-page .admin-row > div {
+    justify-content: flex-start;
+    max-width: none;
+  }
+
+  .admin-page > .admin-grid.with-form .vendor-admin-form {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-page > .admin-grid,
+  .admin-page > .admin-legal-grid {
+    gap: 11px;
+  }
+
+  .admin-page .admin-row > div button {
+    flex: 1 1 auto;
+  }
+
+  .admin-page .admin-filter-bar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-page .admin-filter-bar .admin-search {
+    grid-column: auto;
+  }
+
+  .admin-page .application-filter-bar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
