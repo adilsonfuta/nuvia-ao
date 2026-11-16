@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 
 export type DashboardNotification = {
   id: string;
-  type: "RSVP_RECEIVED" | "TASK_ASSIGNED" | "TASK_DUE" | "EXPENSE_DUE" | "PROJECT_SHARED";
+  type: "RSVP_RECEIVED" | "TASK_ASSIGNED" | "TASK_DUE" | "EXPENSE_DUE" | "PROJECT_SHARED" | "QUOTE_RESPONSE_RECEIVED";
   title: string;
   body: string;
   href: string;

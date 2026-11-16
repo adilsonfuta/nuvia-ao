@@ -83,6 +83,7 @@ enum NotificationType {
   TASK_DUE
   EXPENSE_DUE
   PROJECT_SHARED
+  QUOTE_RESPONSE_RECEIVED
 }
 
 enum UserRole {
@@ -284,7 +285,11 @@ model Guest {
   groupName      String?
   maxPartySize   Int      @default(1)
   seatingTableId String?
-  rsvpToken      String        @unique @default(cuid())
+  rsvpTokenHash       String?       @unique
+  rsvpTokenCiphertext String?
+  rsvpTokenLegacy     String?       @unique(map: "Guest_rsvpTokenLegacy_key")
+  rsvpTokenPreviousHash String?     @unique
+  rsvpTokenPreviousExpiresAt DateTime?
   createdAt      DateTime      @default(now())
   project        EventProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   seatingTable   SeatingTable? @relation(fields: [seatingTableId], references: [id], onDelete: SetNull)

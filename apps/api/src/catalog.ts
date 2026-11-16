@@ -175,16 +175,24 @@ export class QuoteRequestsController {
       throw new NotFoundException("Projecto não encontrado.");
     const vendor = await this.db.vendor.findFirst({
       where: { id: body.vendorId, status: "ACTIVE" },
+      select: { id: true, ownerUserId: true, isDemo: true },
     });
     if (!vendor) throw new NotFoundException("Fornecedor não encontrado.");
-    return this.db.quoteRequest.create({
+    const request = await this.db.quoteRequest.create({
       data: {
         userId: user.id,
         projectId: body.projectId,
         vendorId: body.vendorId,
         message: body.message,
       },
+      include: { vendor: { select: { name: true } } },
     });
+    return {
+      id: request.id,
+      status: request.status,
+      deliveredToPortal: Boolean(vendor.ownerUserId && !vendor.isDemo),
+      vendorName: request.vendor.name,
+    };
   }
 }
 

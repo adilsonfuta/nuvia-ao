@@ -30,17 +30,23 @@ export function createPersistentRateLimit(
   let lastCleanup = 0;
   return (request: any, response: any, next: (error?: unknown) => void) => {
     const path = String(request.originalUrl ?? request.url);
+    const uploadRequest = request.method === "POST" && /^\/api\/v1\/vendor-portal\/[^/]+\/portfolio(?:\?|$)/.test(path);
     const limited =
       path.startsWith("/api/v1/auth/login") ||
       path.startsWith("/api/v1/auth/register") ||
       path.startsWith("/api/v1/auth/password-reset/request") ||
       path.startsWith("/api/v1/auth/password-reset/reset") ||
       path.startsWith("/api/v1/vendor-applications") ||
+      uploadRequest ||
       /^\/api\/v1\/invitations\/[^/]+\/rsvp/.test(path);
     if (!limited) return next();
     void (async () => {
       const now = new Date();
-      const route = path.split("?")[0].replace(/\/[^/]+\/rsvp$/, "/:slug/rsvp");
+      const route = path.split("?")[0]
+        .replace(/\/vendor-portal\/[^/]+\/portfolio$/, "/vendor-portal/:vendorId/portfolio")
+        .replace(/\/[^/]+\/rsvp$/, "/:slug/rsvp");
+      const routeMax = uploadRequest ? Math.min(max, 8) : max;
+      const routeWindowMs = uploadRequest ? Math.max(windowMs, 10 * 60_000) : windowMs;
       const address = String(
         request.ip ?? request.socket?.remoteAddress ?? "unknown",
       );
@@ -52,7 +58,7 @@ export function createPersistentRateLimit(
       )
         keys.push(`account:${request.body.email.trim().toLowerCase()}`);
       const allowed = await Promise.all(
-        keys.map((key) => consumeRateLimitBucket(db, key, max, windowMs, now)),
+        keys.map((key) => consumeRateLimitBucket(db, key, routeMax, routeWindowMs, now)),
       );
       if (now.getTime() - lastCleanup > 60 * 60_000) {
         lastCleanup = now.getTime();

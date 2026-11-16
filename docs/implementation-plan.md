@@ -12,10 +12,18 @@
 - Planeamento, orçamento, fornecedores, participantes/RSVP, convites com QR, programa, colaboração e relatórios.
 - Edição dos dados principais, tarefas, despesas, momentos e convidados.
 
-## Prioridades seguintes
+## Próximas prioridades
 
-1. Completar testes automatizados de API para sessão, autorização por projecto, RSVP e lotação de mesas.
-2. Criar portal de fornecedores, encaminhamento real dos pedidos e notificações, depois de definir verificação e consentimento.
-3. Adicionar importação CSV, recuperação de conta e gestão de espaços.
-4. Implementar pipeline CI, monitorização, backups, retenção de dados e revisão de segurança.
-5. Validar legalmente o conteúdo civil e actualizar fontes de forma recorrente.
+1. Activar e verificar o pipeline CI e ampliar testes de integração para fluxos completos no browser.
+2. Configurar email transaccional para recuperação de conta, após aprovação e configuração explícita do serviço e domínio de envio.
+3. Fazer piloto com fornecedores reais: os perfis demonstrativos não representam negócios, e o encaminhamento só funciona para perfis activos associados a uma conta responsável.
+4. Configurar monitorização externa, backups agendados e recuperação ensaiada no alojamento de produção.
+5. Rever termos, privacidade, retenção de dados e fontes oficiais de informação civil antes do lançamento público.
+
+## Melhorias implementadas nesta etapa
+
+- Caixa de entrada de pedidos para fornecedores com perfil activo associado a uma conta; a resposta fica guardada no evento e gera notificação na plataforma.
+- Estados de erro, recuperação e carregamento em nível de rota, além de páginas claras para endereços inexistentes.
+- Testes automatizados da formatação de valores/datas e dos fluxos de token RSVP e resposta de fornecedor.
+- Workflow CI com typecheck, testes e build; `NEXT_PUBLIC_SITE_URL` permite gerar metadados e sitemap com o domínio público correcto.
+- Recuperação de palavra-passe continua sem envio de email configurado. O endpoint não deve ser apresentado como funcional até existir um serviço de envio aprovado e operacional.

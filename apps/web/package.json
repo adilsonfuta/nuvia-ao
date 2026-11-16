@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'No tests configured yet'"
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@casar/contracts": "0.1.0",

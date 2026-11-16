@@ -24,6 +24,8 @@ const {
   VendorApplicationReviewDto,
 } = require("../dist/admin");
 const { createPersistentRateLimit } = require("../dist/rate-limit");
+const { VendorPortalController } = require("../dist/vendor-portal");
+const { createRsvpTokenCredentials, exposeGuestRsvpToken, hashRsvpToken } = require("../dist/rsvp-token");
 const { plainToInstance } = require("class-transformer");
 const { validate } = require("class-validator");
 
@@ -32,6 +34,40 @@ const contextFor = (request) => ({
 });
 const catches = (type, callback) =>
   assert.rejects(callback, (error) => error instanceof type);
+
+test("tokens RSVP são aleatórios, cifrados e removidos da resposta pública", async () => {
+  const first = createRsvpTokenCredentials();
+  const second = createRsvpTokenCredentials();
+  assert.notEqual(first.token, second.token);
+  assert.equal(first.rsvpTokenHash, hashRsvpToken(first.token));
+  assert.doesNotMatch(first.rsvpTokenCiphertext, new RegExp(first.token));
+  const guest = { id: "guest-1", rsvpTokenHash: first.rsvpTokenHash, rsvpTokenCiphertext: first.rsvpTokenCiphertext, rsvpTokenLegacy: null, rsvpTokenPreviousHash: null, rsvpTokenPreviousExpiresAt: null, name: "Ana" };
+  const exposed = await exposeGuestRsvpToken({ guest: {} }, guest);
+  assert.equal(exposed.rsvpToken, first.token);
+  assert.equal(exposed.name, "Ana");
+  assert.equal("rsvpTokenHash" in exposed, false);
+  assert.equal("rsvpTokenCiphertext" in exposed, false);
+});
+
+test("resposta de fornecedor só altera pedidos do seu perfil e notifica o evento", async () => {
+  let updated;
+  let notice;
+  const db = {
+    quoteRequest: {
+      findFirst: async () => ({ id: "quote-1", projectId: "event-1", status: "NEW", quotedAmount: null, respondedAt: null, vendor: { name: "Flor e Festa" } }),
+      update: async ({ data }) => { updated = data; return { id: "quote-1", projectId: "event-1", ...data }; },
+    },
+    projectMember: { findMany: async () => [{ userId: "couple-1" }] },
+    notification: { createMany: async ({ data }) => { notice = data[0]; } },
+  };
+  const result = await new VendorPortalController(db).respondToInquiry("quote-1", { id: "vendor-owner" }, { quotedAmount: 250000, responseNote: "Disponível nessa data." });
+  assert.equal(result.status, "RESPONDED");
+  assert.equal(updated.quotedAmount, 250000);
+  assert.equal(notice.type, "QUOTE_RESPONSE_RECEIVED");
+  assert.match(notice.href, /event-1/);
+  const missing = new VendorPortalController({ quoteRequest: { findFirst: async () => null } });
+  await catches(NotFoundException, () => missing.respondToInquiry("quote-2", { id: "another-user" }, {}));
+});
 
 test("sessão válida autentica e sessão ausente ou expirada é recusada", async () => {
   const raw = "session-token";
@@ -179,16 +215,23 @@ test("uma despesa não pode ligar-se a uma tarefa de outro evento", async () => 
 });
 
 test("RSVP não aceita um grupo maior do que o limite do convite", async () => {
+  const token = createRsvpTokenCredentials();
   const invitationDb = {
     invitation: {
       findUnique: async () => ({ projectId: "project-1", isPublic: true }),
     },
     guest: {
-      findUnique: async () => ({
+      findFirst: async () => ({
         id: "guest-1",
         projectId: "project-1",
         maxPartySize: 2,
+        rsvpTokenHash: token.rsvpTokenHash,
+        rsvpTokenCiphertext: token.rsvpTokenCiphertext,
+        rsvpTokenLegacy: null,
+        rsvpTokenPreviousHash: null,
+        rsvpTokenPreviousExpiresAt: null,
       }),
+      findUnique: async () => null,
     },
     rSVP: {
       upsert: async () => assert.fail("Não devia gravar RSVP acima do limite"),

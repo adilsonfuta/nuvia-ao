@@ -6,21 +6,22 @@ import type { Request, Response } from 'express';
 import { DatabaseService } from './database';
 
 export class RegisterDto {
-  @IsEmail() email!: string;
-  @IsString() @MinLength(8) password!: string;
-  @IsString() @MinLength(2) name!: string;
+  @IsEmail() @MaxLength(180) email!: string;
+  @IsString() @MinLength(8) @MaxLength(128) password!: string;
+  @IsString() @MinLength(2) @MaxLength(120) name!: string;
 }
 export class LoginDto {
-  @IsEmail() email!: string;
-  @IsString() @MinLength(8) password!: string;
+  @IsEmail() @MaxLength(180) email!: string;
+  @IsString() @MinLength(8) @MaxLength(128) password!: string;
 }
-export class ChangePasswordDto { @IsString() @MinLength(8) currentPassword!:string; @IsString() @MinLength(8) newPassword!:string }
-export class DeleteAccountDto { @IsString() @MinLength(8) password!:string; @IsString() @MinLength(8) confirmation!:string }
+export class ChangePasswordDto { @IsString() @MinLength(8) @MaxLength(128) currentPassword!:string; @IsString() @MinLength(8) @MaxLength(128) newPassword!:string }
+export class DeleteAccountDto { @IsString() @MinLength(8) @MaxLength(128) password!:string; @IsString() @MinLength(8) @MaxLength(128) confirmation!:string }
 export class PasswordResetRequestDto { @IsEmail() @MaxLength(180) email!: string }
 export class PasswordResetDto { @IsString() @MinLength(32) @MaxLength(128) token!: string; @IsString() @MinLength(8) @MaxLength(128) newPassword!: string }
 export interface SessionUser { id: string; email: string; name: string | null }
 const tokenHash=(token:string)=>createHash('sha256').update(token).digest('hex');
 const sessionToken=(request:Request)=>request.headers.cookie?.split(';').map((part)=>part.trim()).find((part)=>part.startsWith('casar_session='))?.slice('casar_session='.length);
+const assertPasswordFitsBcrypt=(password:string)=>{if(Buffer.byteLength(password,'utf8')>72)throw new BadRequestException('A palavra-passe não pode exceder 72 bytes.');};
 
 function sessionCookie(token: string, production: boolean) {
   return `casar_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${production ? '; Secure' : ''}`;
@@ -67,6 +68,7 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() body: RegisterDto, @Res({ passthrough: true }) response: Response) {
+    assertPasswordFitsBcrypt(body.password);
     const email = body.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where: { email } })) throw new ConflictException('Este email já tem uma conta.');
     const user = await this.db.user.create({ data: { email, name: body.name.trim(), passwordHash: await hash(body.password, 12) }, select: { id: true, email: true, name: true } });
@@ -108,6 +110,7 @@ export class AuthController {
 
   @Post('password-reset/reset')
   async resetPassword(@Body() body: PasswordResetDto) {
+    assertPasswordFitsBcrypt(body.newPassword);
     const now = new Date();
     const hashedToken = tokenHash(body.token);
     const passwordHash = await hash(body.newPassword, 12);
@@ -147,10 +150,10 @@ export class AuthController {
   }
 
   @Get('export') @UseGuards(SessionGuard)
-  async exportData(@CurrentUser()user:SessionUser){const account=await this.db.user.findUnique({where:{id:user.id},select:{id:true,email:true,name:true,createdAt:true,projects:{include:{project:{include:{events:true,tasks:true,guests:{include:{rsvps:true}},expenses:true,invitations:true,quoteRequests:{include:{vendor:{select:{name:true,category:true}}}}}}}}}});if(!account)throw new UnauthorizedException();return {exportedAt:new Date().toISOString(),account};}
+  async exportData(@CurrentUser()user:SessionUser){const account=await this.db.user.findUnique({where:{id:user.id},select:{id:true,email:true,name:true,createdAt:true,projects:{include:{project:{include:{events:true,tasks:true,guests:{select:{id:true,projectId:true,name:true,email:true,phone:true,groupName:true,maxPartySize:true,seatingTableId:true,createdAt:true,rsvps:true}},expenses:true,invitations:true,quoteRequests:{include:{vendor:{select:{name:true,category:true}}}}}}}}}});if(!account)throw new UnauthorizedException();return {exportedAt:new Date().toISOString(),account};}
 
   @Post('change-password') @UseGuards(SessionGuard)
-  async changePassword(@CurrentUser()user:SessionUser,@Body()body:ChangePasswordDto,@Res({passthrough:true})response:Response){const account=await this.db.user.findUnique({where:{id:user.id}});if(!account||!(await compare(body.currentPassword,account.passwordHash)))throw new UnauthorizedException('A palavra-passe actual está incorrecta.');if(body.currentPassword===body.newPassword)throw new BadRequestException('Escolhe uma palavra-passe diferente da actual.');await this.db.user.update({where:{id:user.id},data:{passwordHash:await hash(body.newPassword,12)}});await this.db.session.deleteMany({where:{userId:user.id}});return this.issue({id:account.id,email:account.email,name:account.name},response);}
+  async changePassword(@CurrentUser()user:SessionUser,@Body()body:ChangePasswordDto,@Res({passthrough:true})response:Response){assertPasswordFitsBcrypt(body.newPassword);const account=await this.db.user.findUnique({where:{id:user.id}});if(!account||!(await compare(body.currentPassword,account.passwordHash)))throw new UnauthorizedException('A palavra-passe actual está incorrecta.');if(body.currentPassword===body.newPassword)throw new BadRequestException('Escolhe uma palavra-passe diferente da actual.');await this.db.user.update({where:{id:user.id},data:{passwordHash:await hash(body.newPassword,12)}});await this.db.session.deleteMany({where:{userId:user.id}});return this.issue({id:account.id,email:account.email,name:account.name},response);}
 
   @Delete('me') @UseGuards(SessionGuard)
   async deleteAccount(@CurrentUser()user:SessionUser,@Body()body:DeleteAccountDto,@Res({passthrough:true})response:Response){if(body.confirmation!=='ELIMINAR')throw new BadRequestException('Escreve ELIMINAR para confirmar a eliminação.');const account=await this.db.user.findUnique({where:{id:user.id}});if(!account||!(await compare(body.password,account.passwordHash)))throw new UnauthorizedException('A palavra-passe está incorrecta.');if(account.role==='ADMIN'||account.role==='MODERATOR')throw new ForbiddenException('A equipa administrativa não pode eliminar a conta por esta via.');await this.db.$transaction(async(tx)=>{const memberships=await tx.projectMember.findMany({where:{userId:user.id},include:{project:{include:{members:{where:{userId:{not:user.id}},orderBy:{createdAt:'asc'}}}}}});for(const membership of memberships){if(membership.role==='OWNER'){const next=membership.project.members.find((m)=>m.role==='OWNER')??membership.project.members[0];if(next)await tx.projectMember.update({where:{projectId_userId:{projectId:membership.projectId,userId:next.userId}},data:{role:'OWNER'}});else await tx.eventProject.delete({where:{id:membership.projectId}});}}await tx.user.delete({where:{id:user.id}});});response.setHeader('Set-Cookie','casar_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');return {ok:true};}

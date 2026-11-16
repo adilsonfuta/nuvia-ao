@@ -47,6 +47,7 @@ import { Type } from "class-transformer";
 import { DatabaseService } from "./database";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { dismissSourceNotifications, notifyProjectMembers, notifyUser } from "./notifications";
+import { createRsvpTokenCredentials, exposeGuestRsvpToken, hashRsvpToken, revealGuestRsvpToken } from "./rsvp-token";
 
 const projectTaskTemplates: Record<ProjectKind, string[]> = {
   WEDDING: [
@@ -233,7 +234,7 @@ class AddMemberDto {
 }
 const RsvpDecision = { ACCEPTED: "ACCEPTED", DECLINED: "DECLINED" } as const;
 class RsvpDto {
-  @IsString() token!: string;
+  @IsString() @MinLength(24) @MaxLength(180) token!: string;
   @IsEnum(RsvpDecision) status!: "ACCEPTED" | "DECLINED";
   @IsOptional() @IsInt() @Min(1) @Max(10) partySize?: number;
   @IsOptional() @IsString() @MaxLength(400) note?: string;
@@ -457,6 +458,7 @@ export class ProjectsController {
     ).length;
     return {
       ...project,
+      guests: await Promise.all(project.guests.map((guest) => exposeGuestRsvpToken(this.db, guest))),
       metrics: {
         tasksDone: project.tasks.filter((x) => x.status === "DONE").length,
         tasksTotal: project.tasks.length,
@@ -704,11 +706,12 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.owned(id, user.id);
-    return this.db.guest.findMany({
+    const guests = await this.db.guest.findMany({
       where: { projectId: id },
       include: { rsvps: true },
       orderBy: { name: "asc" },
     });
+    return Promise.all(guests.map((guest) => exposeGuestRsvpToken(this.db, guest)));
   }
   @Post(":id/guests") async addGuest(
     @Param("id") id: string,
@@ -724,9 +727,11 @@ export class ProjectsController {
         undefined,
         partySize,
       );
-    return this.db.guest.create({
-      data: { ...body, maxPartySize: partySize, projectId: id },
+    const credentials = createRsvpTokenCredentials();
+    const guest = await this.db.guest.create({
+      data: { ...body, maxPartySize: partySize, projectId: id, rsvpTokenHash: credentials.rsvpTokenHash, rsvpTokenCiphertext: credentials.rsvpTokenCiphertext },
     });
+    return exposeGuestRsvpToken(this.db, guest);
   }
   @Post(":id/guests/import") async importGuests(
     @Param("id") id: string,
@@ -766,6 +771,8 @@ export class ProjectsController {
       groupName: string | null;
       maxPartySize: number;
       projectId: string;
+      rsvpTokenHash: string;
+      rsvpTokenCiphertext: string;
     }> = [];
     let skippedCount = 0;
     for (const guest of body.guests) {
@@ -790,6 +797,7 @@ export class ProjectsController {
         groupName: guest.groupName?.trim() || null,
         maxPartySize: guest.maxPartySize ?? 1,
         projectId: id,
+        ...((({ token: _token, ...stored }) => stored)(createRsvpTokenCredentials())),
       });
     }
     if (records.length) await this.db.guest.createMany({ data: records });
@@ -831,11 +839,12 @@ export class ProjectsController {
             ? guest.rsvps[0].partySize
             : (body.maxPartySize ?? guest.maxPartySize),
       );
-    return this.db.guest.update({
+    const updated = await this.db.guest.update({
       where: { id: guestId },
       data: body,
       include: { rsvps: true, seatingTable: true },
     });
+    return exposeGuestRsvpToken(this.db, updated);
   }
   @Get(":id/tables") async tables(
     @Param("id") id: string,
@@ -1329,18 +1338,34 @@ export class PublicInvitationController {
     });
     if (!inv || !inv.isPublic)
       throw new NotFoundException("Convite não encontrado.");
-    const guest = token
-      ? await this.db.guest.findUnique({
-          where: { rsvpToken: token },
+    let guest = token && token.length <= 180
+      ? await this.db.guest.findFirst({
+          where: { OR: [
+            { rsvpTokenHash: hashRsvpToken(token) },
+            { rsvpTokenPreviousHash: hashRsvpToken(token), rsvpTokenPreviousExpiresAt: { gt: new Date() } },
+          ] },
           select: {
-            name: true,
-            projectId: true,
-            maxPartySize: true,
+            id: true, name: true, projectId: true, maxPartySize: true,
+            rsvpTokenHash: true, rsvpTokenCiphertext: true, rsvpTokenLegacy: true,
+            rsvpTokenPreviousHash: true, rsvpTokenPreviousExpiresAt: true,
             seatingTable: { select: { name: true } },
             rsvps: { where: { eventKey: "all" } },
           },
         })
       : null;
+    if (!guest && token && token.length <= 180) {
+      guest = await this.db.guest.findUnique({
+        where: { rsvpTokenLegacy: token },
+        select: {
+          id: true, name: true, projectId: true, maxPartySize: true,
+          rsvpTokenHash: true, rsvpTokenCiphertext: true, rsvpTokenLegacy: true,
+          rsvpTokenPreviousHash: true, rsvpTokenPreviousExpiresAt: true,
+          seatingTable: { select: { name: true } },
+          rsvps: { where: { eventKey: "all" } },
+        },
+      });
+    }
+    if (guest) await revealGuestRsvpToken(this.db, guest);
     return {
       ...inv,
       recipient:
@@ -1361,13 +1386,17 @@ export class PublicInvitationController {
     const inv = await this.db.invitation.findUnique({ where: { slug } });
     if (!inv || !inv.isPublic)
       throw new NotFoundException("Convite não encontrado.");
-    const guest = await this.db.guest.findUnique({
-      where: { rsvpToken: body.token },
-    });
+    const tokenHash = hashRsvpToken(body.token);
+    let guest = await this.db.guest.findFirst({ where: { OR: [
+      { rsvpTokenHash: tokenHash },
+      { rsvpTokenPreviousHash: tokenHash, rsvpTokenPreviousExpiresAt: { gt: new Date() } },
+    ] } });
+    if (!guest) guest = await this.db.guest.findUnique({ where: { rsvpTokenLegacy: body.token } });
     if (!guest || guest.projectId !== inv.projectId)
       throw new NotFoundException(
         "Este convite individual não foi encontrado.",
       );
+    await revealGuestRsvpToken(this.db, guest);
     if (
       body.status === "ACCEPTED" &&
       (body.partySize ?? 1) > guest.maxPartySize
