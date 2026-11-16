@@ -14,6 +14,7 @@ import {
 import QRCode from "qrcode";
 import { TaskBoard, TaskUpdate } from "./task-board";
 import { BudgetPanel, BudgetExpense } from "./budget-panel";
+import { ContributionsPanel } from "./contributions-panel";
 import {
   ProjectVendorFavorite,
   VendorRequest,
@@ -125,6 +126,7 @@ type Tab =
   | "overview"
   | "planning"
   | "budget"
+  | "contributions"
   | "vendors"
   | "guests"
   | "invitation"
@@ -160,6 +162,7 @@ const DASHBOARD_TABS: { key: Tab; label: string }[] = [
   { key: "events", label: "Os meus eventos" },
   { key: "planning", label: "Planeamento" },
   { key: "budget", label: "Orçamento" },
+  { key: "contributions", label: "Contribuições" },
   { key: "vendors", label: "Fornecedores" },
   { key: "program", label: "Programa" },
   { key: "guests", label: "Convidados" },
@@ -173,6 +176,7 @@ const DASHBOARD_TAB_URL: Record<Tab, string> = {
   overview: "resumo",
   planning: "planeamento",
   budget: "orcamento",
+  contributions: "contribuicoes",
   vendors: "fornecedores",
   guests: "convidados",
   invitation: "convites",
@@ -901,6 +905,27 @@ export default function Dashboard() {
         e instanceof Error ? e.message : "Não foi possível eliminar a despesa.",
       );
     }
+  }
+  async function addExpensePayment(expenseId: string, payment: { title: string; amount: number; dueAt: string | null }) {
+    await api(`/projects/${selected}/budget/expenses/${expenseId}/payments`, {
+      method: "POST",
+      body: JSON.stringify(payment),
+    });
+    await loadDetail(selected);
+    setNotice("Prestação adicionada ao plano de pagamentos.");
+  }
+  async function updateExpensePayment(expenseId: string, paymentId: string, update: { status: "PENDING" | "PAID" }) {
+    await api(`/projects/${selected}/budget/expenses/${expenseId}/payments/${paymentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(update),
+    });
+    await loadDetail(selected);
+    setNotice(update.status === "PAID" ? "Prestação marcada como paga." : "Prestação reaberta.");
+  }
+  async function deleteExpensePayment(expenseId: string, paymentId: string) {
+    await api(`/projects/${selected}/budget/expenses/${expenseId}/payments/${paymentId}`, { method: "DELETE" });
+    await loadDetail(selected);
+    setNotice("Prestação removida.");
   }
   async function saveProject(event: FormEvent) {
     event.preventDefault();
@@ -2068,6 +2093,16 @@ export default function Dashboard() {
                     onDelete={deleteExpense}
                     onOpenTask={openExpenseTask}
                     onSetLimit={() => setTab("settings")}
+                    onAddPayment={addExpensePayment}
+                    onUpdatePayment={updateExpensePayment}
+                    onDeletePayment={deleteExpensePayment}
+                  />
+                )}
+                {tab === "contributions" && (
+                  <ContributionsPanel
+                    projectId={selected}
+                    expenses={data.expenses.map(({ id, title, amount, status }) => ({ id, title, amount, status }))}
+                    canEdit={data.members.some((member) => member.user.id === user.id && member.role !== "VIEWER")}
                   />
                 )}
                 {tab === "guests" && (

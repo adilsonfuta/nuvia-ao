@@ -1,7 +1,18 @@
 'use client';
 
-import { FormEvent } from 'react';
+import { FormEvent, useState } from 'react';
 import { formatAOA } from '../lib/format';
+import { luandaDateInput, luandaDateToIso } from '../lib/time';
+import './budget-panel.css';
+
+export type BudgetPayment = {
+  id: string;
+  title: string;
+  amount: number | string;
+  dueAt: string | null;
+  status: 'PENDING' | 'PAID';
+  paidAt: string | null;
+};
 
 export type BudgetExpense = {
   id: string;
@@ -13,6 +24,7 @@ export type BudgetExpense = {
   taskId: string | null;
   task: { id: string; title: string } | null;
   quoteRequest?: { id: string; vendor: { name: string } } | null;
+  payments: BudgetPayment[];
 };
 
 const categories = ['Espaço','Catering','Decoração','Fotografia e vídeo','Música','Roupa e beleza','Transporte','Convites','Documentação','Outros'];
@@ -21,7 +33,7 @@ const displayDate = (value: string) => new Intl.DateTimeFormat('pt-AO', { dateSt
 const statusLabels = { ESTIMATED: 'Prevista', COMMITTED: 'Contratada', PAID: 'Paga' };
 
 export function BudgetPanel({
-  limit, expenses, tasks, title, setTitle, category, setCategory, amount, setAmount, status, setStatus, dueAt, setDueAt, taskId, setTaskId, editingId, onSubmit, onCancel, onEdit, onDelete, onOpenTask, onSetLimit,
+  limit, expenses, tasks, title, setTitle, category, setCategory, amount, setAmount, status, setStatus, dueAt, setDueAt, taskId, setTaskId, editingId, onSubmit, onCancel, onEdit, onDelete, onOpenTask, onSetLimit, onAddPayment, onUpdatePayment, onDeletePayment,
 }: {
   limit: number | string | null;
   expenses: BudgetExpense[];
@@ -35,15 +47,24 @@ export function BudgetPanel({
   editingId: string; onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void; onEdit: (expense: BudgetExpense) => void; onDelete: (id: string) => void;
   onOpenTask: (id: string) => void; onSetLimit: () => void;
+  onAddPayment: (expenseId: string, payment: { title: string; amount: number; dueAt: string | null }) => Promise<void>;
+  onUpdatePayment: (expenseId: string, paymentId: string, update: { status: 'PENDING' | 'PAID' }) => Promise<void>;
+  onDeletePayment: (expenseId: string, paymentId: string) => Promise<void>;
 }) {
+  const paidAmount = (expense: BudgetExpense) => expense.status === 'PAID'
+    ? Number(expense.amount)
+    : expense.payments.reduce((sum, payment) => sum + (payment.status === 'PAID' ? Number(payment.amount) : 0), 0);
   const totals = expenses.reduce((result, expense) => {
     const value = Number(expense.amount);
     if (expense.status === 'ESTIMATED') result.estimated += value;
-    if (expense.status === 'COMMITTED') result.committed += value;
-    if (expense.status === 'PAID') result.paid += value;
+    if (expense.status !== 'ESTIMATED') {
+      const paid = paidAmount(expense);
+      result.committed += Math.max(0, value - paid);
+      result.paid += paid;
+    }
     const group = result.byCategory.get(expense.category) ?? { estimated: 0, spent: 0 };
     if (expense.status === 'ESTIMATED') group.estimated += value;
-    else group.spent += value;
+    else group.spent += Math.max(0, value - paidAmount(expense)) + paidAmount(expense);
     result.byCategory.set(expense.category, group);
     return result;
   }, { estimated: 0, committed: 0, paid: 0, byCategory: new Map<string, { estimated: number; spent: number }>() });
@@ -55,6 +76,36 @@ export function BudgetPanel({
   const allCategories = Array.from(new Set([...categories, ...totals.byCategory.keys()]));
   const todayValue = today();
   const overdue = (expense: BudgetExpense) => Boolean(expense.dueAt && expense.status !== 'PAID' && expense.dueAt.slice(0, 10) < todayValue);
+  const [paymentDrafts, setPaymentDrafts] = useState<Record<string, { title: string; amount: string; dueAt: string }>>({});
+  const [paymentBusyId, setPaymentBusyId] = useState('');
+  const [paymentError, setPaymentError] = useState('');
+
+  async function addPayment(event: FormEvent<HTMLFormElement>, expense: BudgetExpense) {
+    event.preventDefault();
+    const draft = paymentDrafts[expense.id];
+    if (!draft?.title.trim() || !draft.amount) return;
+    setPaymentBusyId(expense.id); setPaymentError('');
+    try {
+      await onAddPayment(expense.id, { title: draft.title.trim(), amount: Number(draft.amount), dueAt: draft.dueAt ? luandaDateToIso(draft.dueAt) : null });
+      setPaymentDrafts(current => ({ ...current, [expense.id]: { title: '', amount: '', dueAt: '' } }));
+    } catch (error) { setPaymentError(error instanceof Error ? error.message : 'Não foi possível registar a prestação.'); }
+    finally { setPaymentBusyId(''); }
+  }
+
+  async function updatePayment(expense: BudgetExpense, payment: BudgetPayment) {
+    setPaymentBusyId(payment.id); setPaymentError('');
+    try { await onUpdatePayment(expense.id, payment.id, { status: payment.status === 'PAID' ? 'PENDING' : 'PAID' }); }
+    catch (error) { setPaymentError(error instanceof Error ? error.message : 'Não foi possível actualizar a prestação.'); }
+    finally { setPaymentBusyId(''); }
+  }
+
+  async function deletePayment(expense: BudgetExpense, payment: BudgetPayment) {
+    if (!window.confirm(`Remover a prestação “${payment.title}”?`)) return;
+    setPaymentBusyId(payment.id); setPaymentError('');
+    try { await onDeletePayment(expense.id, payment.id); }
+    catch (error) { setPaymentError(error instanceof Error ? error.message : 'Não foi possível remover a prestação.'); }
+    finally { setPaymentBusyId(''); }
+  }
 
   return <div className="budget-module">
     <section className={`budget-summary ${balance !== null && balance < 0 ? 'over-budget' : ''}`} aria-label="Resumo do orçamento">
@@ -106,6 +157,31 @@ export function BudgetPanel({
           {expense.task && <button type="button" className="budget-task-link" onClick={() => onOpenTask(expense.task!.id)}>Tarefa: {expense.task.title} ↗</button>}
           <footer><button type="button" onClick={() => onEdit(expense)}>Editar</button><button type="button" onClick={() => onDelete(expense.id)}>Remover</button></footer>
         </article>)}</div>
+        {paymentError && <p className="form-error" role="alert">{paymentError}</p>}
+        <section className="budget-payment-plans" aria-label="Planos de pagamento das despesas">
+          <div className="budget-section-heading"><div><p className="eyebrow">Sinais e prestações</p><h3>Plano de pagamentos</h3></div></div>
+          {expenses.map((expense) => {
+            const payments = expense.payments ?? [];
+            const paid = paidAmount(expense);
+            const remaining = Math.max(0, Number(expense.amount) - paid);
+            const draft = paymentDrafts[expense.id] ?? { title: '', amount: '', dueAt: '' };
+            return <details className="budget-payment-expense" key={expense.id}>
+              <summary><span><strong>{expense.title}</strong><small>{payments.length ? `${payments.filter(item => item.status === 'PAID').length} de ${payments.length} prestações pagas` : 'Sem prestações registadas'}</small></span><span><strong>{formatAOA(remaining)}</strong><small>por pagar</small></span></summary>
+              {payments.length > 0 && <div className="budget-payment-list">{payments.map(payment => <article key={payment.id}>
+                <div><strong>{payment.title}</strong><small>{payment.dueAt ? `Prazo · ${displayDate(payment.dueAt)}` : 'Sem prazo definido'}{payment.paidAt ? ` · Pago · ${displayDate(payment.paidAt)}` : ''}</small></div>
+                <strong>{formatAOA(Number(payment.amount))}</strong>
+                <span className={`expense-status ${payment.status === 'PAID' ? 'paid' : 'committed'}`}>{payment.status === 'PAID' ? 'Pago' : 'Por pagar'}</span>
+                <div className="budget-row-actions"><button type="button" disabled={Boolean(paymentBusyId)} onClick={() => void updatePayment(expense, payment)}>{paymentBusyId === payment.id ? 'A guardar…' : payment.status === 'PAID' ? 'Reabrir' : 'Marcar pago'}</button>{payment.status === 'PENDING' && <button type="button" disabled={Boolean(paymentBusyId)} onClick={() => void deletePayment(expense, payment)}>Remover</button>}</div>
+              </article>)}</div>}
+              {expense.status !== 'PAID' && <form className="budget-payment-form" onSubmit={event => void addPayment(event, expense)}>
+                <label>Descrição<input required minLength={2} maxLength={120} value={draft.title} onChange={event => setPaymentDrafts(current => ({ ...current, [expense.id]: { ...draft, title: event.target.value } }))} placeholder="Ex.: Sinal"/></label>
+                <label>Valor (Kz)<input required type="number" min="0.01" step="any" value={draft.amount} onChange={event => setPaymentDrafts(current => ({ ...current, [expense.id]: { ...draft, amount: event.target.value } }))} placeholder="0"/></label>
+                <label>Data de pagamento<input type="date" value={draft.dueAt} onChange={event => setPaymentDrafts(current => ({ ...current, [expense.id]: { ...draft, dueAt: event.target.value } }))}/></label>
+                <button className="button button-outline compact" disabled={paymentBusyId === expense.id}>{paymentBusyId === expense.id ? 'A guardar…' : 'Adicionar prestação'}</button>
+              </form>}
+            </details>;
+          })}
+        </section>
       </> : <p className="empty-copy budget-empty">Ainda não há despesas. Regista uma estimativa, contrato ou pagamento para acompanhar o orçamento.</p>}
     </section>
   </div>;

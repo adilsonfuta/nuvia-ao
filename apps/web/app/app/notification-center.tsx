@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 
 export type DashboardNotification = {
   id: string;
-  type: "RSVP_RECEIVED" | "TASK_ASSIGNED" | "TASK_DUE" | "EXPENSE_DUE" | "PROJECT_SHARED" | "QUOTE_RESPONSE_RECEIVED";
+  type: "RSVP_RECEIVED" | "TASK_ASSIGNED" | "TASK_DUE" | "EXPENSE_DUE" | "PROJECT_SHARED" | "QUOTE_RESPONSE_RECEIVED" | "CONTRIBUTION_SUBMITTED";
   title: string;
   body: string;
   href: string;
@@ -146,7 +146,7 @@ export function NotificationCenter({
               ))}
             </ul>
           ) : !error ? (
-            <p className="notification-empty">Ainda não há notificações. Avisaremos aqui sobre tarefas, prazos, pagamentos, convidados e partilhas.</p>
+            <p className="notification-empty">Ainda não há notificações. Avisaremos aqui sobre tarefas, prazos, pagamentos, convidados, contribuições e partilhas.</p>
           ) : null}
         </section>
       )}

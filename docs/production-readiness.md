@@ -8,6 +8,7 @@ Este documento separa o que o código já suporta das operações que ainda prec
 - A candidatura de fornecedor guarda nome comercial, contacto, email, telefone, localização e descrição. Limitar o acesso à equipa administrativa e definir um prazo de retenção para candidaturas recusadas.
 - O utilizador escolhe explicitamente abrir email ou WhatsApp para enviar um pedido. A plataforma não envia nem confirma a entrega dessa mensagem.
 - Não colocar segredos, bases de dados ou backups em repositórios. A pasta `backups/` está excluída do Git e os ficheiros são criados sem permissões de leitura para outros utilizadores do sistema.
+- Os comprovativos das contribuições ficam fora da pasta pública, com nomes aleatórios e permissões restritas. Em produção, configurar `PRIVATE_UPLOAD_STORAGE_DIR` para volume persistente e privado, incluí-lo nos backups cifrados e definir uma política de retenção/eliminação. O endpoint de leitura exige sessão e acesso ao evento.
 
 ## Backups e recuperação
 
@@ -34,8 +35,10 @@ Para restaurar um dump validado num banco vazio: `pg_restore --no-owner --no-acl
 ## Lançamento
 
 - Aplicar migrations num ambiente de staging e verificar backup antes de produção.
+- Aplicar também a migration `20261116230000_event_contributions` e configurar `PRIVATE_UPLOAD_STORAGE_DIR` num volume privado persistente antes de disponibilizar os links públicos.
 - Configurar HTTPS, origem pública, `API_INTERNAL_URL`, `WEB_ORIGIN`, segredos fortes e `TRUST_PROXY_HOPS` conforme a infraestrutura.
 - Definir `NEXT_PUBLIC_SITE_URL` com a origem canónica HTTPS para metadados e sitemap; sem esta variável o sitemap permanece vazio para não publicar URLs locais.
 - Executar testes automatizados, percursos no browser com contas de teste, revisão de acessos administrativos e teste de recuperação.
 - A plataforma não envia convites por email/WhatsApp nem processa pagamentos. Pedidos podem chegar à caixa de entrada interna apenas quando o fornecedor tem perfil activo associado a uma conta; perfis demonstrativos ou sem responsável continuam a exigir contacto manual.
+- A funcionalidade de contribuições regista transferências feitas fora da Nuvia. O total só inclui contribuições confirmadas manualmente pela organização; não há processamento nem confirmação automática de pagamentos.
 - A recuperação de palavra-passe precisa de um serviço transaccional de email e domínio verificado. O envio de links de recuperação para um serviço externo foi bloqueado pela revisão automática nesta etapa; não activar essa integração sem a aprovação necessária e uma configuração segura.

@@ -17,6 +17,7 @@ import { randomBytes } from "node:crypto";
 import {
   EventType,
   ExpenseStatus,
+  ExpensePaymentStatus,
   InvitationTheme,
   NotificationType,
   ProjectKind,
@@ -49,34 +50,34 @@ import { CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { dismissSourceNotifications, notifyProjectMembers, notifyUser } from "./notifications";
 import { createRsvpTokenCredentials, exposeGuestRsvpToken, hashRsvpToken, revealGuestRsvpToken } from "./rsvp-token";
 
-const projectTaskTemplates: Record<ProjectKind, string[]> = {
+const projectTaskTemplates: Record<ProjectKind, { title: string; category: string }[]> = {
   WEDDING: [
-    "Confirmar os requisitos civis aplicáveis",
-    "Definir cerimónia e celebração",
-    "Preparar a primeira lista de convidados",
-    "Comparar espaços e fornecedores",
-    "Combinar responsabilidades com a família",
+    { title: "Confirmar os requisitos civis aplicáveis", category: "Documentação" },
+    { title: "Definir cerimónia e celebração", category: "Cerimónia" },
+    { title: "Preparar a primeira lista de convidados", category: "Convidados" },
+    { title: "Comparar espaços e fornecedores", category: "Fornecedores" },
+    { title: "Combinar responsabilidades com a família", category: "Colaboração" },
   ],
   ALAMBAMENTO: [
-    "Conversar entre famílias sobre o pedido",
-    "Definir data, local e participantes",
-    "Preparar a lista de itens e responsabilidades",
-    "Estimar os custos por categoria",
-    "Partilhar o plano com quem vai ajudar",
+    { title: "Conversar entre famílias sobre o pedido", category: "Famílias" },
+    { title: "Definir data, local e participantes", category: "Planeamento" },
+    { title: "Preparar a lista de itens e responsabilidades com ambas as famílias", category: "Tradições e itens" },
+    { title: "Estimar os custos por categoria", category: "Orçamento" },
+    { title: "Partilhar o plano e distribuir responsabilidades", category: "Colaboração" },
   ],
   PARTY: [
-    "Definir o motivo e formato da festa",
-    "Escolher data e espaço",
-    "Preparar a lista de convidados",
-    "Comparar catering, música e decoração",
-    "Distribuir tarefas pela equipa",
+    { title: "Definir o motivo, formato e duração da festa", category: "Planeamento" },
+    { title: "Escolher data e espaço", category: "Espaço" },
+    { title: "Preparar a lista de convidados", category: "Convidados" },
+    { title: "Comparar catering, música e decoração", category: "Fornecedores" },
+    { title: "Distribuir tarefas pela equipa", category: "Colaboração" },
   ],
   OTHER: [
-    "Definir o objectivo e formato do evento",
-    "Escolher data e local",
-    "Preparar uma estimativa de participantes",
-    "Estimar custos e prioridades",
-    "Convidar pessoas para colaborar",
+    { title: "Definir o objectivo e formato do evento", category: "Planeamento" },
+    { title: "Escolher data e local", category: "Logística" },
+    { title: "Preparar uma estimativa de participantes", category: "Convidados" },
+    { title: "Estimar custos e prioridades", category: "Orçamento" },
+    { title: "Convidar pessoas para colaborar", category: "Colaboração" },
   ],
 };
 const vendorBudgetCategory: Record<string, string> = {
@@ -153,6 +154,17 @@ class UpdateExpenseDto {
   @IsOptional() @IsEnum(ExpenseStatus) status?: ExpenseStatus;
   @IsOptional() @IsDateString() dueAt?: string | null;
   @IsOptional() @IsString() taskId?: string | null;
+}
+class CreateExpensePaymentDto {
+  @IsString() @MinLength(2) @MaxLength(120) title!: string;
+  @IsNumber() @Min(0.01) amount!: number;
+  @IsOptional() @IsDateString() dueAt?: string;
+}
+class UpdateExpensePaymentDto {
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(120) title?: string;
+  @IsOptional() @IsNumber() @Min(0.01) amount?: number;
+  @IsOptional() @IsDateString() dueAt?: string | null;
+  @IsOptional() @IsEnum(ExpensePaymentStatus) status?: ExpensePaymentStatus;
 }
 class ProjectVendorFavoriteDto {
   @IsString() vendorId!: string;
@@ -390,7 +402,7 @@ export class ProjectsController {
             }
           : undefined,
         tasks: {
-          create: projectTaskTemplates[kind].map((title) => ({ title })),
+          create: projectTaskTemplates[kind],
         },
       },
       include: { events: true, tasks: true },
@@ -416,6 +428,7 @@ export class ProjectsController {
           orderBy: { createdAt: "desc" },
           include: {
             task: { select: { id: true, title: true } },
+            payments: { orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }] },
             quoteRequest: {
               select: { id: true, vendor: { select: { name: true } } },
             },
@@ -439,9 +452,12 @@ export class ProjectsController {
     const totalCommitted = project.expenses
       .filter((x) => x.status !== "ESTIMATED")
       .reduce((n, x) => n + Number(x.amount), 0);
-    const totalPaid = project.expenses
-      .filter((x) => x.status === "PAID")
-      .reduce((n, x) => n + Number(x.amount), 0);
+    const totalPaid = project.expenses.reduce((sum, expense) => {
+      if (expense.status === "PAID") return sum + Number(expense.amount);
+      return sum + expense.payments
+        .filter((payment) => payment.status === "PAID")
+        .reduce((paid, payment) => paid + Number(payment.amount), 0);
+    }, 0);
     const acceptedRsvpPeople = project.guests.reduce(
       (sum, guest) =>
         sum +
@@ -922,6 +938,7 @@ export class ProjectsController {
       where: { projectId: id },
       include: {
         task: { select: { id: true, title: true } },
+        payments: { orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }] },
         quoteRequest: {
           select: { id: true, vendor: { select: { name: true } } },
         },
@@ -969,9 +986,16 @@ export class ProjectsController {
     await this.owned(id, user.id, true);
     const previous = await this.db.expense.findFirst({
       where: { id: expenseId, projectId: id },
-      select: { dueAt: true },
+      select: { dueAt: true, amount: true, status: true, payments: { select: { amount: true } } },
     });
     if (!previous) throw new NotFoundException("Despesa não encontrada.");
+    if (body.amount !== undefined && previous.payments.length) {
+      const scheduledCents = previous.payments.reduce((total, payment) => total + Math.round(Number(payment.amount) * 100), 0);
+      if (scheduledCents > Math.round(body.amount * 100))
+        throw new BadRequestException("O valor da despesa não pode ficar abaixo do total das prestações registadas.");
+    }
+    if (body.status === "ESTIMATED" && previous.payments.length)
+      throw new BadRequestException("Remove ou conclui o plano de pagamentos antes de voltar a marcar esta despesa como prevista.");
     if (
       body.taskId &&
       !(await this.db.task.findFirst({
@@ -995,9 +1019,15 @@ export class ProjectsController {
       },
     });
     if (!result.count) throw new NotFoundException("Despesa não encontrada.");
+    if (body.status === "PAID") {
+      await this.db.expensePayment.updateMany({
+        where: { expenseId, expense: { projectId: id }, status: ExpensePaymentStatus.PENDING },
+        data: { status: ExpensePaymentStatus.PAID, paidAt: new Date() },
+      });
+    }
     const updated = await this.db.expense.findUnique({
       where: { id: expenseId },
-      include: { task: { select: { id: true, title: true } } },
+      include: { task: { select: { id: true, title: true } }, payments: { orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }] } },
     });
     if (
       updated &&
@@ -1008,6 +1038,81 @@ export class ProjectsController {
       await dismissSourceNotifications(this.db, id, NotificationType.EXPENSE_DUE, expenseId);
     }
     return updated;
+  }
+  @Post(":id/budget/expenses/:expenseId/payments") async addExpensePayment(
+    @Param("id") id: string,
+    @Param("expenseId") expenseId: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: CreateExpensePaymentDto,
+  ) {
+    await this.owned(id, user.id, true);
+    return this.db.$transaction(async (tx) => {
+      const expense = await tx.expense.findFirst({ where: { id: expenseId, projectId: id }, select: { id: true, amount: true, status: true } });
+      if (!expense) throw new NotFoundException("Despesa não encontrada.");
+      const totals = await tx.expensePayment.aggregate({ where: { expenseId }, _sum: { amount: true } });
+      const nextTotal = Math.round(Number(totals._sum.amount ?? 0) * 100) + Math.round(body.amount * 100);
+      if (nextTotal > Math.round(Number(expense.amount) * 100))
+        throw new BadRequestException("O total das prestações não pode ultrapassar o valor da despesa.");
+      if (expense.status === ExpenseStatus.PAID)
+        throw new BadRequestException("Esta despesa já está paga. Reabre-a como contratada antes de adicionar prestações.");
+      const payment = await tx.expensePayment.create({
+        data: { expenseId, title: body.title.trim(), amount: body.amount, dueAt: body.dueAt ? new Date(body.dueAt) : undefined },
+      });
+      if (expense.status === ExpenseStatus.ESTIMATED)
+        await tx.expense.update({ where: { id: expenseId }, data: { status: ExpenseStatus.COMMITTED } });
+      return payment;
+    });
+  }
+  @Patch(":id/budget/expenses/:expenseId/payments/:paymentId") async updateExpensePayment(
+    @Param("id") id: string,
+    @Param("expenseId") expenseId: string,
+    @Param("paymentId") paymentId: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: UpdateExpensePaymentDto,
+  ) {
+    await this.owned(id, user.id, true);
+    return this.db.$transaction(async (tx) => {
+      const expense = await tx.expense.findFirst({ where: { id: expenseId, projectId: id }, select: { id: true, amount: true, status: true } });
+      if (!expense) throw new NotFoundException("Despesa não encontrada.");
+      const payment = await tx.expensePayment.findFirst({ where: { id: paymentId, expenseId } });
+      if (!payment) throw new NotFoundException("Prestação não encontrada.");
+      const payments = await tx.expensePayment.findMany({ where: { expenseId } });
+      const nextAmount = body.amount ?? Number(payment.amount);
+      const scheduledCents = payments.reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0)
+        - Math.round(Number(payment.amount) * 100) + Math.round(nextAmount * 100);
+      if (scheduledCents > Math.round(Number(expense.amount) * 100))
+        throw new BadRequestException("O total das prestações não pode ultrapassar o valor da despesa.");
+      const status = body.status ?? payment.status;
+      const updated = await tx.expensePayment.update({
+        where: { id: paymentId },
+        data: {
+          title: body.title?.trim(),
+          amount: body.amount,
+          dueAt: body.dueAt === null ? null : body.dueAt ? new Date(body.dueAt) : undefined,
+          status,
+          paidAt: status === ExpensePaymentStatus.PAID ? payment.paidAt ?? new Date() : null,
+        },
+      });
+      const after = payments.map((item) => item.id === paymentId ? { ...item, amount: nextAmount, status } : item);
+      const paidCents = after.filter((item) => item.status === ExpensePaymentStatus.PAID).reduce((sum, item) => sum + Math.round(Number(item.amount) * 100), 0);
+      const fullyPaid = paidCents >= Math.round(Number(expense.amount) * 100);
+      const nextExpenseStatus = fullyPaid ? ExpenseStatus.PAID
+        : expense.status === ExpenseStatus.PAID || expense.status === ExpenseStatus.ESTIMATED
+          ? ExpenseStatus.COMMITTED : undefined;
+      if (nextExpenseStatus) await tx.expense.update({ where: { id: expenseId }, data: { status: nextExpenseStatus } });
+      return updated;
+    });
+  }
+  @Delete(":id/budget/expenses/:expenseId/payments/:paymentId") async deleteExpensePayment(
+    @Param("id") id: string,
+    @Param("expenseId") expenseId: string,
+    @Param("paymentId") paymentId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.owned(id, user.id, true);
+    const result = await this.db.expensePayment.deleteMany({ where: { id: paymentId, expenseId, expense: { projectId: id }, status: ExpensePaymentStatus.PENDING } });
+    if (!result.count) throw new NotFoundException("Prestação pendente não encontrada.");
+    return { ok: true };
   }
   @Delete(":id/budget/expenses/:expenseId") async deleteExpense(
     @Param("id") id: string,

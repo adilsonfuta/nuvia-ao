@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Res,
   UploadedFile,
   UseGuards,
@@ -113,8 +114,33 @@ export class VendorPortalController {
   }
 
   @Get()
-  async profiles(@CurrentUser() user: SessionUser) {
-    const [vendors, claims, inquiries] = await Promise.all([
+  async profiles(
+    @CurrentUser() user: SessionUser,
+    @Query("inquiryPage") inquiryPageRaw = "1",
+    @Query("inquiryStatus") inquiryStatusRaw = "ALL",
+    @Query("inquirySearch") inquirySearchRaw = "",
+  ) {
+    const requestedPage = /^\d+$/.test(inquiryPageRaw) ? Number(inquiryPageRaw) : 1;
+    const inquiryPage = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? Math.min(requestedPage, 1_000_000) : 1;
+    const pageSize = 10;
+    const inquiryStatus = inquiryStatusRaw === "OPEN" || Object.values(QuoteRequestStatus).includes(inquiryStatusRaw as QuoteRequestStatus)
+      ? inquiryStatusRaw
+      : "ALL";
+    const inquirySearch = inquirySearchRaw.trim().slice(0, 100);
+    const inquiryWhere = {
+      vendor: { ownerUserId: user.id },
+      ...(inquiryStatus === "OPEN" ? { status: { in: [QuoteRequestStatus.NEW, QuoteRequestStatus.SENT] } }
+        : inquiryStatus !== "ALL" ? { status: inquiryStatus as QuoteRequestStatus } : {}),
+      ...(inquirySearch ? {
+        OR: [
+          { message: { contains: inquirySearch, mode: "insensitive" as const } },
+          { project: { title: { contains: inquirySearch, mode: "insensitive" as const } } },
+          { vendor: { name: { contains: inquirySearch, mode: "insensitive" as const }, ownerUserId: user.id } },
+        ],
+      } : {}),
+    };
+    const ownerWhere = { vendor: { ownerUserId: user.id } };
+    const [vendors, claims, inquiries, inquiryCount, unreadCount, openCount] = await Promise.all([
       this.db.vendor.findMany({
         where: { ownerUserId: user.id },
         include: {
@@ -134,16 +160,25 @@ export class VendorPortalController {
         orderBy: { createdAt: "desc" },
       }),
       this.db.quoteRequest.findMany({
-        where: { vendor: { ownerUserId: user.id } },
+        where: inquiryWhere,
         include: {
           vendor: { select: { id: true, name: true, slug: true, category: true } },
           project: { select: { id: true, title: true, date: true, province: true, guestEstimate: true } },
         },
-        orderBy: [{ status: "asc" }, { createdAt: "desc" }],
-        take: 100,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (inquiryPage - 1) * pageSize,
+        take: pageSize,
       }),
+      this.db.quoteRequest.count({ where: inquiryWhere }),
+      this.db.quoteRequest.count({ where: { ...ownerWhere, vendorViewedAt: null } }),
+      this.db.quoteRequest.count({ where: { ...ownerWhere, status: { in: [QuoteRequestStatus.NEW, QuoteRequestStatus.SENT] } } }),
     ]);
-    return { vendors: vendors.map((vendor) => ({ ...vendor, reviews: vendor.reviews.map((review) => ({ ...review, reviewerName: review.isAnonymous ? null : review.reviewer?.name ?? null, reviewer: undefined })) })), claims, inquiries };
+    return {
+      vendors: vendors.map((vendor) => ({ ...vendor, reviews: vendor.reviews.map((review) => ({ ...review, reviewerName: review.isAnonymous ? null : review.reviewer?.name ?? null, reviewer: undefined })) })),
+      claims,
+      inquiries,
+      inquiryMeta: { page: inquiryPage, pageSize, total: inquiryCount, totalPages: Math.max(1, Math.ceil(inquiryCount / pageSize)), unreadCount, openCount },
+    };
   }
 
   @Patch("inquiries/:requestId")
@@ -180,6 +215,20 @@ export class VendorPortalController {
       href: `/dashboard?tab=fornecedores&event=${encodeURIComponent(request.projectId)}`,
     });
     return updated;
+  }
+
+  @Patch("inquiries/:requestId/read")
+  async markInquiryRead(@Param("requestId") requestId: string, @CurrentUser() user: SessionUser) {
+    const inquiry = await this.db.quoteRequest.findFirst({
+      where: { id: requestId, vendor: { ownerUserId: user.id } },
+      select: { id: true, vendorViewedAt: true },
+    });
+    if (!inquiry) throw new NotFoundException("Pedido não encontrado.");
+    return this.db.quoteRequest.update({
+      where: { id: inquiry.id },
+      data: { vendorViewedAt: inquiry.vendorViewedAt ?? new Date() },
+      select: { id: true, vendorViewedAt: true },
+    });
   }
 
   @Post(":id/reviews/:reviewId/response")
