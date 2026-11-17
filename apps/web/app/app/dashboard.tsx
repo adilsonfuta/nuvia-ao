@@ -1387,9 +1387,6 @@ export default function Dashboard() {
         <a className="sidebar-vendor-link" href="/fornecedor/gestao">
           Sou fornecedor · Gerir perfil <span aria-hidden="true">↗</span>
         </a>
-        <a className="sidebar-public-link" href="/" target="_blank" rel="noreferrer">
-          Ver site público <span aria-hidden="true">↗</span>
-        </a>
         <div className="sidebar-user">
           <span className="user-avatar" aria-hidden="true">
             {(user.name || user.email).slice(0, 1).toUpperCase()}
