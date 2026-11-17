@@ -160,21 +160,31 @@ const ANGOLA_PROVINCES = [
   "Uíge",
   "Zaire",
 ];
-const DASHBOARD_TABS: { key: Tab; label: string }[] = [
+const DASHBOARD_PRIMARY_TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Visão geral" },
   { key: "events", label: "Os meus eventos" },
-  { key: "planning", label: "Planeamento" },
-  { key: "budget", label: "Orçamento" },
-  { key: "contributions", label: "Contribuições" },
-  { key: "share", label: "Resumo partilhável" },
-  { key: "vendors", label: "Fornecedores" },
-  { key: "program", label: "Programa" },
-  { key: "guests", label: "Convidados" },
-  { key: "invitation", label: "Convites digitais" },
-  { key: "team", label: "Colaboração" },
-  { key: "reports", label: "Relatórios" },
-  { key: "settings", label: "Definições" },
 ];
+const DASHBOARD_NAV_GROUPS: { id: string; label: string; keys: Tab[] }[] = [
+  { id: "preparations", label: "Preparativos", keys: ["planning", "vendors", "guests", "program"] },
+  { id: "finance", label: "Orçamento e contribuições", keys: ["budget", "contributions"] },
+  { id: "sharing", label: "Partilha", keys: ["invitation", "share"] },
+  { id: "management", label: "Gestão", keys: ["team", "reports", "settings"] },
+];
+const DASHBOARD_TAB_LABEL: Record<Tab, string> = {
+  events: "Os meus eventos",
+  overview: "Visão geral",
+  planning: "Planeamento",
+  budget: "Orçamento",
+  contributions: "Contribuições",
+  share: "Resumo partilhável",
+  vendors: "Fornecedores",
+  guests: "Convidados",
+  invitation: "Convites digitais",
+  program: "Programa",
+  team: "Colaboração",
+  reports: "Relatórios",
+  settings: "Definições",
+};
 const DASHBOARD_TAB_URL: Record<Tab, string> = {
   events: "eventos",
   overview: "resumo",
@@ -303,6 +313,7 @@ export default function Dashboard() {
   const [archivingProject, setArchivingProject] = useState(false);
   const [data, setData] = useState<Detail | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
+  const [openNavGroup, setOpenNavGroup] = useState<string | null | undefined>(undefined);
   const [navigationReady, setNavigationReady] = useState(false);
   const [settingsView, setSettingsView] = useState<"event" | "account">(
     "event",
@@ -1321,18 +1332,50 @@ export default function Dashboard() {
         </a>
         <NotificationCenter onOpen={openNotification} />
         <nav aria-label="Navegação do projecto">
-          {DASHBOARD_TABS.filter(
+          {DASHBOARD_PRIMARY_TABS.filter(
             (item) => item.key !== "events" || projects.length > 0,
           ).map((item) => (
             <button
-              className={tab === item.key ? "current" : ""}
+              className={`dashboard-nav-primary ${tab === item.key ? "current" : ""}`}
               aria-current={tab === item.key ? "page" : undefined}
-              onClick={() => setTab(item.key)}
+              onClick={() => { setTab(item.key); setOpenNavGroup(null); }}
               key={item.key}
             >
               <span>{item.label}</span>
             </button>
           ))}
+          {DASHBOARD_NAV_GROUPS.map((group) => {
+            const active = group.keys.includes(tab);
+            const expanded = openNavGroup === undefined ? active : openNavGroup === group.id;
+            return (
+              <div className={`dashboard-nav-group ${active ? "has-current" : ""} ${expanded ? "is-expanded" : ""}`} key={group.id}>
+                <button
+                  type="button"
+                  className={`dashboard-nav-group-toggle ${active ? "current" : ""}`}
+                  aria-expanded={expanded}
+                  aria-controls={`dashboard-nav-${group.id}`}
+                  onClick={() => setOpenNavGroup(expanded ? null : group.id)}
+                >
+                  <span>{group.label}</span>
+                  <small>{active ? DASHBOARD_TAB_LABEL[tab] : `${group.keys.length} áreas`}</small>
+                  <span className="dashboard-nav-chevron" aria-hidden="true">{expanded ? "⌃" : "⌄"}</span>
+                </button>
+                {expanded && (
+                  <div className="dashboard-nav-children" id={`dashboard-nav-${group.id}`}>
+                    {group.keys.map((key) => (
+                      <button
+                        type="button"
+                        className={tab === key ? "current" : ""}
+                        aria-current={tab === key ? "page" : undefined}
+                        onClick={() => { setTab(key); setOpenNavGroup(group.id); }}
+                        key={key}
+                      >{DASHBOARD_TAB_LABEL[key]}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
         {(user.role === "ADMIN" || user.role === "MODERATOR") && (
           <a className="sidebar-admin-link" href="/admin">
