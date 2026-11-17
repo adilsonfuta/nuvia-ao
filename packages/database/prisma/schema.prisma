@@ -56,6 +56,24 @@ enum ExpenseStatus {
   PAID
 }
 
+enum ExpensePaymentStatus {
+  PENDING
+  PAID
+}
+
+enum ContributionStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum ContributionPaymentMethod {
+  BANK_TRANSFER
+  MOBILE_MONEY
+  CASH
+  OTHER
+}
+
 enum VendorStatus {
   DRAFT
   PENDING
@@ -84,6 +102,7 @@ enum NotificationType {
   EXPENSE_DUE
   PROJECT_SHARED
   QUOTE_RESPONSE_RECEIVED
+  CONTRIBUTION_SUBMITTED
 }
 
 enum UserRole {
@@ -202,6 +221,8 @@ model EventProject {
   vendorFavorites ProjectVendorFavorite[]
   seatingTables SeatingTable[]
   notifications Notification[]
+  contributionCampaign ContributionCampaign?
+  summaryShare       EventSummaryShare?
 
   @@map("Wedding")
 }
@@ -327,9 +348,83 @@ model Expense {
   project   EventProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   task      Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
   quoteRequest QuoteRequest? @relation(fields: [quoteRequestId], references: [id], onDelete: SetNull)
+  payments   ExpensePayment[]
+  contributions EventContribution[]
 
   @@index([projectId, status])
   @@index([taskId])
+}
+
+model ExpensePayment {
+  id        String               @id @default(cuid())
+  expenseId String
+  title     String
+  amount    Decimal              @db.Decimal(14, 2)
+  dueAt     DateTime?
+  status    ExpensePaymentStatus @default(PENDING)
+  paidAt    DateTime?
+  createdAt DateTime             @default(now())
+  expense   Expense              @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId, status, dueAt])
+}
+
+model EventSummaryShare {
+  id                  String       @id @default(cuid())
+  projectId           String       @unique
+  publicToken         String       @unique
+  enabled             Boolean      @default(false)
+  showFinancial       Boolean      @default(false)
+  showGuestCounts     Boolean      @default(true)
+  showVendors         Boolean      @default(false)
+  showCompletedTasks  Boolean      @default(true)
+  showProgram         Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  project             EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([enabled, publicToken])
+}
+
+model ContributionCampaign {
+  id                    String   @id @default(cuid())
+  projectId             String   @unique
+  publicToken           String   @unique
+  enabled               Boolean  @default(false)
+  purpose               String   @default("Apoio ao evento")
+  instructions          String   @default("")
+  proofRequired         Boolean  @default(false)
+  allowExpenseSelection Boolean  @default(false)
+  showProgress          Boolean  @default(false)
+  goalAmount            Decimal? @db.Decimal(14, 2)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  project               EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contributions         EventContribution[]
+
+  @@index([enabled, publicToken])
+}
+
+model EventContribution {
+  id              String                     @id @default(cuid())
+  campaignId      String
+  contributorName String?
+  isAnonymous     Boolean                    @default(false)
+  amount          Decimal                    @db.Decimal(14, 2)
+  paymentMethod   ContributionPaymentMethod
+  message         String?
+  proofStorageKey String?
+  status          ContributionStatus         @default(PENDING)
+  reviewNote      String?
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  expenseId       String?
+  createdAt       DateTime                   @default(now())
+  campaign        ContributionCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  expense         Expense?                   @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId, status, createdAt])
+  @@index([expenseId])
 }
 
 model Invitation {
@@ -514,6 +609,7 @@ model QuoteRequest {
   vendorId  String
   message   String
   status    QuoteRequestStatus @default(NEW)
+  vendorViewedAt DateTime?
   quotedAmount Decimal?         @db.Decimal(14, 2)
   responseNote String?
   respondedAt DateTime?
@@ -526,6 +622,7 @@ model QuoteRequest {
 
   @@index([projectId, createdAt])
   @@index([vendorId, status])
+  @@index([vendorId, vendorViewedAt])
 }
 
 model VendorReview {

@@ -10,4 +10,5 @@ coverage
 *.log
 /backups/
 /apps/api/data/vendor-portfolio/
+/apps/api/data/private-contribution-proofs/
 packages/database/generated

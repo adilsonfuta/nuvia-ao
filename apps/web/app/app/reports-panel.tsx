@@ -35,6 +35,7 @@ const taskStatus = (task: ReportTask) =>
 
 export function ReportsPanel({
   budgetLimit,
+  confirmedContributions,
   expenses,
   tasks,
   guests,
@@ -44,6 +45,7 @@ export function ReportsPanel({
   onOpenExpense,
 }: {
   budgetLimit: number | string | null;
+  confirmedContributions: number;
   expenses: BudgetExpense[];
   tasks: ReportTask[];
   guests: ReportGuest[];
@@ -57,20 +59,23 @@ export function ReportsPanel({
     (result, expense) => {
       const amount = Number(expense.amount);
       if (expense.status === "ESTIMATED") result.estimated += amount;
-      if (expense.status === "COMMITTED") result.committed += amount;
-      if (expense.status === "PAID") result.paid += amount;
+      const paid = expense.status === "PAID"
+        ? amount
+        : expense.payments.reduce((sum, payment) => sum + (payment.status === "PAID" ? Number(payment.amount) : 0), 0);
+      if (expense.status !== "ESTIMATED") {
+        result.committed += Math.max(0, amount - paid);
+        result.paid += paid;
+      }
       const category = result.byCategory.get(expense.category) ?? {
         estimated: 0,
         committed: 0,
         paid: 0,
       };
-      category[
-        expense.status === "ESTIMATED"
-          ? "estimated"
-          : expense.status === "COMMITTED"
-            ? "committed"
-            : "paid"
-      ] += amount;
+      if (expense.status === "ESTIMATED") category.estimated += amount;
+      else {
+        category.committed += Math.max(0, amount - paid);
+        category.paid += paid;
+      }
       result.byCategory.set(expense.category, category);
       return result;
     },
@@ -88,6 +93,7 @@ export function ReportsPanel({
   // This matches the budget page: all three states count against the event limit.
   const registered = totals.estimated + totals.committed + totals.paid;
   const balance = limit === null ? null : limit - registered;
+  const netBalance = confirmedContributions - totals.paid;
   const progress =
     limit && limit > 0
       ? Math.min(100, Math.round((registered / limit) * 100))
@@ -100,9 +106,19 @@ export function ReportsPanel({
   const upcomingTasks = activeTasks
     .filter((task) => task.dueAt && luandaDateInput(task.dueAt) >= today)
     .sort((a, b) => a.dueAt!.localeCompare(b.dueAt!));
-  const unpaidPayments = expenses
-    .filter((expense) => expense.status !== "PAID" && expense.dueAt)
-    .sort((a, b) => a.dueAt!.localeCompare(b.dueAt!));
+  const unpaidPayments = expenses.flatMap((expense) => {
+    if (expense.status === "PAID") return [];
+    if (expense.payments.length) return expense.payments
+      .filter((payment) => payment.status === "PENDING" && payment.dueAt)
+      .map((payment) => ({
+        id: payment.id,
+        title: `${expense.title} · ${payment.title}`,
+        dueAt: payment.dueAt!,
+        amount: Number(payment.amount),
+        expense,
+      }));
+    return expense.dueAt ? [{ id: expense.id, title: expense.title, dueAt: expense.dueAt, amount: Math.max(0, Number(expense.amount) - expense.payments.reduce((sum, payment) => sum + (payment.status === "PAID" ? Number(payment.amount) : 0), 0)), expense }] : [];
+  }).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
   const overduePayments = unpaidPayments.filter(
     (expense) => luandaDateInput(expense.dueAt) < today,
   );
@@ -144,7 +160,7 @@ export function ReportsPanel({
             <h2>Orçamento e despesas</h2>
             <p className="empty-copy">
               Estimativas, contratos e pagamentos são apresentados em estados
-              separados. O saldo considera todos os valores registados.
+              separados. O saldo do limite considera todas as despesas; o saldo líquido compara contribuições confirmadas com despesas pagas.
             </p>
           </div>
           <button
@@ -190,6 +206,8 @@ export function ReportsPanel({
               {balance === null ? "Define o limite" : formatAOA(balance)}
             </strong>
           </article>
+          <article><small>Contribuições confirmadas</small><strong>{formatAOA(confirmedContributions)}</strong></article>
+          <article className="balance"><small>Saldo líquido após pagamentos</small><strong>{formatAOA(netBalance)}</strong></article>
         </div>
         {limit !== null && (
           <div className="report-budget-progress">
@@ -393,27 +411,27 @@ export function ReportsPanel({
             </div>
           )}
           {unpaidPayments.slice(0, 5).length ? (
-            unpaidPayments.slice(0, 5).map((expense) => {
-              const overdue = luandaDateInput(expense.dueAt) < today;
+            unpaidPayments.slice(0, 5).map((payment) => {
+              const overdue = luandaDateInput(payment.dueAt) < today;
               return (
                 <article
                   className={`report-action-row ${overdue ? "overdue" : ""}`}
-                  key={expense.id}
+                  key={payment.id}
                 >
-                  <time dateTime={expense.dueAt!}>
-                    {displayDate(expense.dueAt!)}
+                  <time dateTime={payment.dueAt}>
+                    {displayDate(payment.dueAt)}
                   </time>
                   <div>
-                    <strong>{expense.title}</strong>
+                    <strong>{payment.title}</strong>
                     <small>
                       {overdue ? "Prazo ultrapassado" : "Por pagar"} ·{" "}
-                      {formatAOA(Number(expense.amount))}
+                      {formatAOA(payment.amount)}
                     </small>
                   </div>
                   <button
                     type="button"
                     className="link-button"
-                    onClick={() => onOpenExpense(expense)}
+                    onClick={() => onOpenExpense(payment.expense)}
                   >
                     Abrir
                   </button>
@@ -425,9 +443,11 @@ export function ReportsPanel({
               Não há pagamentos pendentes com prazo registado.
             </p>
           )}
-          {expenses.some(
-            (expense) => expense.status !== "PAID" && !expense.dueAt,
-          ) && (
+          {expenses.some((expense) => expense.status !== "PAID" && (
+            expense.payments.length
+              ? expense.payments.some((payment) => payment.status === "PENDING" && !payment.dueAt)
+              : !expense.dueAt
+          )) && (
             <p className="report-undated-note">
               Há despesas por pagar sem data definida. Abre o Orçamento para
               registar os prazos.
