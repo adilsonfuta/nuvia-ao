@@ -14,7 +14,7 @@ const statusText: Record<ContributionStatus, string> = { PENDING: "Por confirmar
 const methodText = { BANK_TRANSFER: "Transferência", MOBILE_MONEY: "Pagamento móvel", CASH: "Numerário", OTHER: "Outro" };
 const dateText = (value: string) => new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Luanda" }).format(new Date(value));
 
-export function ContributionsPanel({ projectId, expenses, canEdit }: { projectId: string; expenses: ExpenseOption[]; canEdit: boolean }) {
+export function ContributionsPanel({ projectId, expenses, canEdit, onRefresh }: { projectId: string; expenses: ExpenseOption[]; canEdit: boolean; onRefresh: () => Promise<void> }) {
   const [data, setData] = useState<Result | null>(null);
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("ALL");
@@ -53,9 +53,9 @@ export function ContributionsPanel({ projectId, expenses, canEdit }: { projectId
   useEffect(() => { void refresh().catch(e => setError(e instanceof Error ? e.message : "Não foi possível carregar as contribuições.")).finally(() => setLoading(false)); }, [refresh]);
   useEffect(() => { setOrigin(window.location.origin); }, []);
 
-  async function perform(work: () => Promise<unknown>, success: string) {
+  async function perform(work: () => Promise<unknown>, success: string, refreshDashboard = false) {
     setBusy(true); setError(""); setNotice("");
-    try { await work(); await refresh(); setNotice(success); }
+    try { await work(); await refresh(); if (refreshDashboard) void onRefresh().catch(() => undefined); setNotice(success); }
     catch (e) { setError(e instanceof Error ? e.message : "Não foi possível concluir esta acção."); }
     finally { setBusy(false); }
   }
@@ -66,12 +66,12 @@ export function ContributionsPanel({ projectId, expenses, canEdit }: { projectId
   }
 
   async function review(item: Contribution, nextStatus: "CONFIRMED" | "REJECTED") {
-    await perform(() => api(`/projects/${projectId}/contributions/${item.id}`, { method: "PATCH", body: JSON.stringify({ status: nextStatus, reviewNote: reviewNote[item.id]?.trim() || null }) }), nextStatus === "CONFIRMED" ? "Contribuição confirmada; entrou no total recebido." : "Contribuição recusada.");
+    await perform(() => api(`/projects/${projectId}/contributions/${item.id}`, { method: "PATCH", body: JSON.stringify({ status: nextStatus, reviewNote: reviewNote[item.id]?.trim() || null }) }), nextStatus === "CONFIRMED" ? "Contribuição confirmada; entrou no total recebido." : "Contribuição recusada.", true);
   }
 
   async function remove(item: Contribution) {
     if (!window.confirm("Apagar este registo e o comprovativo associado? Esta acção não pode ser anulada.")) return;
-    await perform(() => api(`/projects/${projectId}/contributions/${item.id}`, { method: "DELETE" }), "Registo e comprovativo apagados.");
+    await perform(() => api(`/projects/${projectId}/contributions/${item.id}`, { method: "DELETE" }), "Registo e comprovativo apagados.", true);
   }
 
   async function copyLink() {

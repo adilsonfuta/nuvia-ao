@@ -25,6 +25,7 @@ export type BudgetExpense = {
   task: { id: string; title: string } | null;
   quoteRequest?: { id: string; vendor: { name: string } } | null;
   payments: BudgetPayment[];
+  contributions?: { id: string; amount: number | string }[];
 };
 
 const categories = ['Espaço','Catering','Decoração','Fotografia e vídeo','Música','Roupa e beleza','Transporte','Convites','Documentação','Outros'];
@@ -33,9 +34,10 @@ const displayDate = (value: string) => new Intl.DateTimeFormat('pt-AO', { dateSt
 const statusLabels = { ESTIMATED: 'Prevista', COMMITTED: 'Contratada', PAID: 'Paga' };
 
 export function BudgetPanel({
-  limit, expenses, tasks, title, setTitle, category, setCategory, amount, setAmount, status, setStatus, dueAt, setDueAt, taskId, setTaskId, editingId, onSubmit, onCancel, onEdit, onDelete, onOpenTask, onSetLimit, onAddPayment, onUpdatePayment, onDeletePayment,
+  limit, confirmedContributions, expenses, tasks, title, setTitle, category, setCategory, amount, setAmount, status, setStatus, dueAt, setDueAt, taskId, setTaskId, editingId, onSubmit, onCancel, onEdit, onDelete, onOpenTask, onSetLimit, onAddPayment, onUpdatePayment, onDeletePayment,
 }: {
   limit: number | string | null;
+  confirmedContributions: number;
   expenses: BudgetExpense[];
   tasks: { id: string; title: string }[];
   title: string; setTitle: (value: string) => void;
@@ -71,6 +73,8 @@ export function BudgetPanel({
   const totalRegistered = totals.estimated + totals.committed + totals.paid;
   const limitValue = limit === null ? null : Number(limit);
   const balance = limitValue === null ? null : limitValue - totalRegistered;
+  const netBalance = confirmedContributions - totals.paid;
+  const confirmedForExpense = (expense: BudgetExpense) => (expense.contributions ?? []).reduce((sum, item) => sum + Number(item.amount), 0);
   const progress = limitValue && limitValue > 0 ? Math.min(100, Math.round(totalRegistered / limitValue * 100)) : 0;
   const maxCategoryValue = Math.max(1, ...Array.from(totals.byCategory.values()).flatMap((item) => [item.estimated, item.spent]));
   const allCategories = Array.from(new Set([...categories, ...totals.byCategory.keys()]));
@@ -117,6 +121,7 @@ export function BudgetPanel({
         <article><small>Pago</small><strong>{formatAOA(totals.paid)}</strong></article>
         <article className="budget-balance"><small>{balance !== null && balance < 0 ? 'Previsão acima do limite' : 'Saldo após despesas registadas'}</small><strong>{balance === null ? 'Define um limite' : formatAOA(balance)}</strong></article>
       </div>
+      <div className="budget-inflow-summary" aria-label="Contribuições e saldo líquido"><article><small>Contribuições confirmadas</small><strong>{formatAOA(confirmedContributions)}</strong></article><article><small>Saldo líquido após pagamentos</small><strong>{formatAOA(netBalance)}</strong></article><p>Saldo líquido = contribuições confirmadas menos despesas pagas registadas. Não inclui outras fontes de dinheiro.</p></div>
       {limitValue !== null && <div className="budget-progress-block"><div><span>Total das despesas registadas</span><strong>{formatAOA(totalRegistered)} · {progress}% do limite</strong></div><div className="budget-progress" role="progressbar" aria-label="Despesas registadas face ao limite do orçamento" aria-valuemin={0} aria-valuemax={limitValue || 1} aria-valuenow={Math.min(totalRegistered, limitValue || 1)}><span style={{ width: `${progress}%` }}/></div></div>}
     </section>
 
@@ -142,7 +147,7 @@ export function BudgetPanel({
       </form>
       {expenses.length ? <>
         <div className="budget-expense-table-wrap"><table className="budget-expense-table"><thead><tr><th>Despesa</th><th>Categoria</th><th>Estado</th><th>Prazo</th><th>Valor</th><th>Tarefa</th><th>Acções</th></tr></thead><tbody>{expenses.map((expense) => <tr key={expense.id}>
-          <td data-label="Despesa"><strong>{expense.title}</strong>{expense.quoteRequest && <small className="budget-vendor-line">Fornecedor: {expense.quoteRequest.vendor.name}</small>}</td><td data-label="Categoria">{expense.category}</td>
+          <td data-label="Despesa"><strong>{expense.title}</strong>{confirmedForExpense(expense) > 0 && <small className="budget-expense-contribution">Apoio confirmado · {formatAOA(confirmedForExpense(expense))}</small>}{expense.quoteRequest && <small className="budget-vendor-line">Fornecedor: {expense.quoteRequest.vendor.name}</small>}</td><td data-label="Categoria">{expense.category}</td>
           <td data-label="Estado"><span className={`expense-status ${expense.status.toLowerCase()}`}>{statusLabels[expense.status]}</span></td>
           <td data-label="Prazo">{expense.dueAt ? <span className={overdue(expense) ? 'expense-overdue' : ''}>{displayDate(expense.dueAt)}{overdue(expense) && <small>Atrasada</small>}</span> : '—'}</td>
           <td data-label="Valor" className="expense-amount">{formatAOA(Number(expense.amount))}</td>
@@ -151,6 +156,7 @@ export function BudgetPanel({
         </tr>)}</tbody></table></div>
         <div className="budget-expense-cards">{expenses.map((expense) => <article className="budget-expense-card" key={expense.id}>
           <header><strong>{expense.title}</strong><span className={`expense-status ${expense.status.toLowerCase()}`}>{statusLabels[expense.status]}</span></header>
+          {confirmedForExpense(expense) > 0 && <p className="budget-expense-contribution">Apoio confirmado · {formatAOA(confirmedForExpense(expense))}</p>}
           <div className="budget-expense-card-meta"><span>{expense.category}</span><strong>{formatAOA(Number(expense.amount))}</strong></div>
           {expense.quoteRequest && <p className="budget-vendor-line">Fornecedor: {expense.quoteRequest.vendor.name}</p>}
           {expense.dueAt && <p className={overdue(expense) ? 'expense-overdue' : ''}>Prazo: {displayDate(expense.dueAt)}{overdue(expense) && ' · Atrasada'}</p>}

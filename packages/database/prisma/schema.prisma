@@ -222,6 +222,7 @@ model EventProject {
   seatingTables SeatingTable[]
   notifications Notification[]
   contributionCampaign ContributionCampaign?
+  summaryShare       EventSummaryShare?
 
   @@map("Wedding")
 }
@@ -366,6 +367,23 @@ model ExpensePayment {
   expense   Expense              @relation(fields: [expenseId], references: [id], onDelete: Cascade)
 
   @@index([expenseId, status, dueAt])
+}
+
+model EventSummaryShare {
+  id                  String       @id @default(cuid())
+  projectId           String       @unique
+  publicToken         String       @unique
+  enabled             Boolean      @default(false)
+  showFinancial       Boolean      @default(false)
+  showGuestCounts     Boolean      @default(true)
+  showVendors         Boolean      @default(false)
+  showCompletedTasks  Boolean      @default(true)
+  showProgram         Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  project             EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([enabled, publicToken])
 }
 
 model ContributionCampaign {

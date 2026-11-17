@@ -15,6 +15,7 @@ import QRCode from "qrcode";
 import { TaskBoard, TaskUpdate } from "./task-board";
 import { BudgetPanel, BudgetExpense } from "./budget-panel";
 import { ContributionsPanel } from "./contributions-panel";
+import { ShareSummaryPanel } from "./share-summary-panel";
 import {
   ProjectVendorFavorite,
   VendorRequest,
@@ -119,6 +120,7 @@ type Detail = Project & {
     rsvpsPending: number;
     totalCommitted: number;
     totalPaid: number;
+    totalContributionsConfirmed: number;
   };
 };
 type Tab =
@@ -127,6 +129,7 @@ type Tab =
   | "planning"
   | "budget"
   | "contributions"
+  | "share"
   | "vendors"
   | "guests"
   | "invitation"
@@ -163,6 +166,7 @@ const DASHBOARD_TABS: { key: Tab; label: string }[] = [
   { key: "planning", label: "Planeamento" },
   { key: "budget", label: "Orçamento" },
   { key: "contributions", label: "Contribuições" },
+  { key: "share", label: "Resumo partilhável" },
   { key: "vendors", label: "Fornecedores" },
   { key: "program", label: "Programa" },
   { key: "guests", label: "Convidados" },
@@ -177,6 +181,7 @@ const DASHBOARD_TAB_URL: Record<Tab, string> = {
   planning: "planeamento",
   budget: "orcamento",
   contributions: "contribuicoes",
+  share: "partilhar",
   vendors: "fornecedores",
   guests: "convidados",
   invitation: "convites",
@@ -2069,6 +2074,7 @@ export default function Dashboard() {
                 {tab === "budget" && (
                   <BudgetPanel
                     limit={data.budgetLimit}
+                    confirmedContributions={data.metrics.totalContributionsConfirmed}
                     expenses={data.expenses}
                     tasks={data.tasks.map((task) => ({
                       id: task.id,
@@ -2098,11 +2104,18 @@ export default function Dashboard() {
                     onDeletePayment={deleteExpensePayment}
                   />
                 )}
+                {tab === "share" && (
+                  <ShareSummaryPanel
+                    projectId={selected}
+                    canEdit={data.members.some((member) => member.user.id === user.id && member.role !== "VIEWER")}
+                  />
+                )}
                 {tab === "contributions" && (
                   <ContributionsPanel
                     projectId={selected}
                     expenses={data.expenses.map(({ id, title, amount, status }) => ({ id, title, amount, status }))}
                     canEdit={data.members.some((member) => member.user.id === user.id && member.role !== "VIEWER")}
+                    onRefresh={() => loadDetail(selected)}
                   />
                 )}
                 {tab === "guests" && (
@@ -2715,6 +2728,7 @@ export default function Dashboard() {
                 {tab === "reports" && (
                   <ReportsPanel
                     budgetLimit={data.budgetLimit}
+                    confirmedContributions={data.metrics.totalContributionsConfirmed}
                     expenses={data.expenses}
                     tasks={data.tasks}
                     guests={data.guests}

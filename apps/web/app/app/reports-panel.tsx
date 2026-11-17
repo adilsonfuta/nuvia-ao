@@ -35,6 +35,7 @@ const taskStatus = (task: ReportTask) =>
 
 export function ReportsPanel({
   budgetLimit,
+  confirmedContributions,
   expenses,
   tasks,
   guests,
@@ -44,6 +45,7 @@ export function ReportsPanel({
   onOpenExpense,
 }: {
   budgetLimit: number | string | null;
+  confirmedContributions: number;
   expenses: BudgetExpense[];
   tasks: ReportTask[];
   guests: ReportGuest[];
@@ -91,6 +93,7 @@ export function ReportsPanel({
   // This matches the budget page: all three states count against the event limit.
   const registered = totals.estimated + totals.committed + totals.paid;
   const balance = limit === null ? null : limit - registered;
+  const netBalance = confirmedContributions - totals.paid;
   const progress =
     limit && limit > 0
       ? Math.min(100, Math.round((registered / limit) * 100))
@@ -157,7 +160,7 @@ export function ReportsPanel({
             <h2>Orçamento e despesas</h2>
             <p className="empty-copy">
               Estimativas, contratos e pagamentos são apresentados em estados
-              separados. O saldo considera todos os valores registados.
+              separados. O saldo do limite considera todas as despesas; o saldo líquido compara contribuições confirmadas com despesas pagas.
             </p>
           </div>
           <button
@@ -203,6 +206,8 @@ export function ReportsPanel({
               {balance === null ? "Define o limite" : formatAOA(balance)}
             </strong>
           </article>
+          <article><small>Contribuições confirmadas</small><strong>{formatAOA(confirmedContributions)}</strong></article>
+          <article className="balance"><small>Saldo líquido após pagamentos</small><strong>{formatAOA(netBalance)}</strong></article>
         </div>
         {limit !== null && (
           <div className="report-budget-progress">

@@ -7,7 +7,7 @@ import { AdminController } from './admin';
 import { CatalogConfigController, GuidesController, LegalController, QuoteRequestsController, VendorFavoritesController, VenuesController, VendorsController } from './catalog';
 import { DatabaseService } from './database';
 import { NotificationsController } from './notifications';
-import { PublicInvitationController, ProjectsController } from './projects';
+import { PublicEventSummaryController, PublicInvitationController, ProjectsController } from './projects';
 import { VendorApplicationsController } from './vendor-applications';
 import { PublicVendorPortfolioController, VendorPortalController } from './vendor-portal';
 import { ProjectContributionsController, PublicContributionsController } from './contributions';
@@ -19,7 +19,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, AuthController, AdminController, ProjectsController, PublicInvitationController, NotificationsController, VendorsController, CatalogConfigController, VendorFavoritesController, QuoteRequestsController, GuidesController, LegalController, VenuesController, VendorApplicationsController, VendorPortalController, PublicVendorPortfolioController, ProjectContributionsController, PublicContributionsController],
+  controllers: [HealthController, AuthController, AdminController, ProjectsController, PublicInvitationController, PublicEventSummaryController, NotificationsController, VendorsController, CatalogConfigController, VendorFavoritesController, QuoteRequestsController, GuidesController, LegalController, VenuesController, VendorApplicationsController, VendorPortalController, PublicVendorPortfolioController, ProjectContributionsController, PublicContributionsController],
   providers: [DatabaseService, SessionGuard, AdminGuard],
 })
 export class AppModule {}

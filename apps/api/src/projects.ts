@@ -5,10 +5,12 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Header,
   NotFoundException,
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from "@nestjs/common";
@@ -138,6 +140,14 @@ class UpdateEventDto {
   @IsOptional() @IsUrl({ require_protocol: true, protocols: ["http", "https"] }) @MaxLength(500) mapsUrl?: string | null;
   @IsOptional() @IsString() @MaxLength(800) guestNotes?: string | null;
   @IsOptional() @IsBoolean() showToGuests?: boolean;
+}
+class EventSummarySettingsDto {
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsBoolean() showFinancial?: boolean;
+  @IsOptional() @IsBoolean() showGuestCounts?: boolean;
+  @IsOptional() @IsBoolean() showVendors?: boolean;
+  @IsOptional() @IsBoolean() showCompletedTasks?: boolean;
+  @IsOptional() @IsBoolean() showProgram?: boolean;
 }
 class CreateExpenseDto {
   @IsString() @MinLength(2) title!: string;
@@ -429,6 +439,7 @@ export class ProjectsController {
           include: {
             task: { select: { id: true, title: true } },
             payments: { orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }] },
+            contributions: { where: { status: "CONFIRMED" }, select: { id: true, amount: true } },
             quoteRequest: {
               select: { id: true, vendor: { select: { name: true } } },
             },
@@ -449,6 +460,10 @@ export class ProjectsController {
       },
     });
     if (!project) throw new NotFoundException("Projecto não encontrado.");
+    const confirmedContributions = await this.db.eventContribution.aggregate({
+      where: { campaign: { projectId: id }, status: "CONFIRMED" },
+      _sum: { amount: true },
+    });
     const totalCommitted = project.expenses
       .filter((x) => x.status !== "ESTIMATED")
       .reduce((n, x) => n + Number(x.amount), 0);
@@ -483,6 +498,7 @@ export class ProjectsController {
         rsvpsPending: pendingRsvps,
         totalCommitted,
         totalPaid,
+        totalContributionsConfirmed: Number(confirmedContributions._sum.amount ?? 0),
       },
     };
   }
@@ -939,6 +955,7 @@ export class ProjectsController {
       include: {
         task: { select: { id: true, title: true } },
         payments: { orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }] },
+        contributions: { where: { status: "CONFIRMED" }, select: { id: true, amount: true } },
         quoteRequest: {
           select: { id: true, vendor: { select: { name: true } } },
         },
@@ -1135,6 +1152,51 @@ export class ProjectsController {
     });
     await dismissSourceNotifications(this.db, id, NotificationType.EXPENSE_DUE, expense.id);
     return { ok: true };
+  }
+  @Get(":id/share-summary") async getSummaryShare(
+    @Param("id") id: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.owned(id, user.id);
+    const share = await this.db.eventSummaryShare.findUnique({ where: { projectId: id } });
+    return share ? { ...share, sharePath: `/resumo-evento/${share.publicToken}` } : {
+      enabled: false, showFinancial: false, showGuestCounts: true, showVendors: false,
+      showCompletedTasks: true, showProgram: true, sharePath: null,
+    };
+  }
+  @Put(":id/share-summary") async updateSummaryShare(
+    @Param("id") id: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: EventSummarySettingsDto,
+  ) {
+    await this.owned(id, user.id, true);
+    const existing = await this.db.eventSummaryShare.findUnique({ where: { projectId: id } });
+    const data = {
+      enabled: body.enabled ?? existing?.enabled ?? false,
+      showFinancial: body.showFinancial ?? existing?.showFinancial ?? false,
+      showGuestCounts: body.showGuestCounts ?? existing?.showGuestCounts ?? true,
+      showVendors: body.showVendors ?? existing?.showVendors ?? false,
+      showCompletedTasks: body.showCompletedTasks ?? existing?.showCompletedTasks ?? true,
+      showProgram: body.showProgram ?? existing?.showProgram ?? true,
+    };
+    const share = await this.db.eventSummaryShare.upsert({
+      where: { projectId: id },
+      create: { projectId: id, publicToken: randomBytes(24).toString("base64url"), ...data },
+      update: data,
+    });
+    return { ...share, sharePath: `/resumo-evento/${share.publicToken}` };
+  }
+  @Post(":id/share-summary/rotate-link") async rotateSummaryLink(
+    @Param("id") id: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.owned(id, user.id, true);
+    const existing = await this.db.eventSummaryShare.findUnique({ where: { projectId: id } });
+    if (!existing) throw new NotFoundException("Ainda não existe um resumo partilhável.");
+    const share = await this.db.eventSummaryShare.update({
+      where: { projectId: id }, data: { publicToken: randomBytes(24).toString("base64url") },
+    });
+    return { sharePath: `/resumo-evento/${share.publicToken}` };
   }
   @Post(":id/invitations") async publishInvitation(
     @Param("id") id: string,
@@ -1549,5 +1611,56 @@ export class PublicInvitationController {
       });
     }
     return response;
+  }
+}
+
+
+@ApiTags("Resumo público do evento")
+@Controller("event-summaries")
+export class PublicEventSummaryController {
+  constructor(private readonly db: DatabaseService) {}
+
+  @Get(":token")
+  @Header("Cache-Control", "no-store")
+  async get(@Param("token") token: string) {
+    const share = await this.db.eventSummaryShare.findFirst({
+      where: { publicToken: token, enabled: true, project: { archivedAt: null } },
+      include: {
+        project: {
+          select: {
+            title: true, kind: true, date: true, province: true,
+            tasks: { select: { id: true, title: true, status: true }, orderBy: { createdAt: "desc" } },
+            guests: { select: { rsvps: { where: { eventKey: "all" }, select: { status: true, partySize: true } } } },
+            expenses: { select: { amount: true, status: true, payments: { select: { amount: true, status: true } } } },
+            quoteRequests: { select: { status: true, vendor: { select: { name: true, category: true } } }, orderBy: { createdAt: "desc" } },
+            events: { where: { showToGuests: true }, select: { id: true, title: true, type: true, startsAt: true, venue: true, address: true, mapsUrl: true }, orderBy: { startsAt: "asc" } },
+            contributionCampaign: { select: { id: true } },
+          },
+        },
+      },
+    });
+    if (!share) throw new NotFoundException("Este resumo não está disponível.");
+    const project = share.project;
+    const tasksDone = project.tasks.filter(task => task.status === "DONE");
+    const completedPaid = project.expenses.reduce((total, expense) => total + (expense.status === "PAID" ? Number(expense.amount) : expense.payments.filter(payment => payment.status === "PAID").reduce((sum, payment) => sum + Number(payment.amount), 0)), 0);
+    const guestSummary = project.guests.reduce((summary, guest) => {
+      const rsvp = guest.rsvps[0];
+      if (!rsvp) summary.pending += 1;
+      else if (rsvp.status === "ACCEPTED") summary.confirmed += rsvp.partySize;
+      else if (rsvp.status === "DECLINED") summary.declined += 1;
+      return summary;
+    }, { confirmed: 0, pending: 0, declined: 0 });
+    const contributionTotal = share.showFinancial && project.contributionCampaign
+      ? await this.db.eventContribution.aggregate({ where: { campaignId: project.contributionCampaign.id, status: "CONFIRMED" }, _sum: { amount: true } })
+      : null;
+    return {
+      title: project.title, kind: project.kind, date: project.date, province: project.province,
+      updatedAt: new Date(),
+      progress: { completed: tasksDone.length, total: project.tasks.length, percent: project.tasks.length ? Math.round(tasksDone.length / project.tasks.length * 100) : 0, tasks: share.showCompletedTasks ? tasksDone.map(({ title }) => title) : [] },
+      guests: share.showGuestCounts ? guestSummary : null,
+      finance: share.showFinancial ? { expensesPaid: completedPaid, contributionsConfirmed: Number(contributionTotal?._sum.amount ?? 0), net: Number(contributionTotal?._sum.amount ?? 0) - completedPaid } : null,
+      vendors: share.showVendors ? project.quoteRequests.map(request => ({ name: request.vendor.name, category: request.vendor.category, status: request.status })) : null,
+      program: share.showProgram ? project.events : null,
+    };
   }
 }
