@@ -1,8 +1,6 @@
-import type { NextConfig } from 'next';
-
 const apiServer = (process.env.API_INTERNAL_URL ?? 'http://127.0.0.1:4000/api/v1').replace(/\/$/, '');
 
-const nextConfig: NextConfig = {
+const nextConfig = {
   reactStrictMode: true,
   distDir: process.env.NEXT_DIST_DIR || '.next',
   async headers() {
