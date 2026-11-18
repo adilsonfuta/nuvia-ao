@@ -31,7 +31,7 @@ Define no painel de variáveis da aplicação Compose, sem guardar valores reais
 
 O Compose mantém a base de dados, o portefólio dos fornecedores, os comprovativos das contribuições e os documentos privados dos eventos em volumes separados. Os documentos são cifrados antes de serem gravados; preserva a chave `PROJECT_DOCUMENT_ENCRYPTION_KEY` fora do volume e dos backups. Configura backups regulares desses volumes e testa a reposição antes de guardar dados reais.
 
-O serviço de execução única `migrate` aplica `prisma migrate deploy` antes de iniciar a API. Está marcado com `exclude_from_hc`, extensão do Coolify para impedir que o container de migração (que termina com código zero) afecte o estado de saúde global. Mantém o modo Compose normal no Coolify para que esta extensão e o proxy gerido sejam processados. Não remova nem reinicie manualmente o volume da base de dados para resolver erros de migração. Faz backup antes de alterações de schema.
+O serviço de execução única `migrate` aplica `prisma migrate deploy` antes de iniciar a API. Está marcado com `exclude_from_hc`, extensão do Coolify para impedir que o container de migração (que termina com código zero) afecte o estado de saúde global. Mantém o modo Compose normal no Coolify para que esta extensão e o proxy gerido sejam processados. Faz backup antes de alterações de schema. Se o Prisma indicar P3009, segue a recuperação descrita em [README.md](../README.md#recuperar-uma-migração-p3009); não apagues volumes que possam conter dados necessários.
 
 ## Verificação após o primeiro deploy
 
