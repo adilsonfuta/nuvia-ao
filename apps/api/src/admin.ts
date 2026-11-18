@@ -11,7 +11,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
-import { VendorApplicationStatus, VendorClaimStatus, VendorContentStatus, VendorReviewStatus, VendorStatus } from "@casar/database";
+import { VenueStatus, VendorApplicationStatus, VendorClaimStatus, VendorContentStatus, VendorReviewStatus, VendorStatus } from "@casar/database";
 import type { Response } from "express";
 import { sendStoredVendorImage, vendorSocialPayloadIsSafe } from "./vendor-portal";
 import {
@@ -101,6 +101,58 @@ class VendorReview {
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) instagramUrl?: string | null;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) facebookUrl?: string | null;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) tiktokUrl?: string | null;
+}
+class VenueInput {
+  @IsString() @MinLength(2) @MaxLength(120) name!: string;
+  @IsString() @MinLength(2) @MaxLength(140) slug!: string;
+  @IsString() @MinLength(2) @MaxLength(80) venueType!: string;
+  @IsOptional() @IsString() @MaxLength(2500) description?: string;
+  @IsOptional() @IsString() @MaxLength(80) province?: string;
+  @IsOptional() @IsString() @MaxLength(100) municipality?: string;
+  @IsOptional() @IsString() @MaxLength(300) address?: string;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) mapsUrl?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(100000) capacityMin?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(100000) capacityMax?: number;
+  @IsOptional() @IsNumber() @Min(0) priceFrom?: number;
+  @IsOptional() @IsNumber() @Min(0) priceTo?: number;
+  @IsOptional() @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) @MaxLength(100, { each: true }) amenities?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(80, { each: true }) eventTypes?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUrl({ protocols: ["https"], require_protocol: true }, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  @IsOptional() @IsEmail() @MaxLength(180) email?: string;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) websiteUrl?: string;
+  @IsOptional() @IsString() @MaxLength(1000) bookingTerms?: string;
+  @IsOptional() @IsString() @MaxLength(1000) paymentTerms?: string;
+  @IsOptional() @IsString() @MaxLength(1000) cancellationTerms?: string;
+  @IsOptional() @IsString() vendorId?: string;
+}
+class VenuePatch {
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(120) name?: string;
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(140) slug?: string;
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(80) venueType?: string;
+  @IsOptional() @IsString() @MaxLength(2500) description?: string | null;
+  @IsOptional() @IsString() @MaxLength(80) province?: string | null;
+  @IsOptional() @IsString() @MaxLength(100) municipality?: string | null;
+  @IsOptional() @IsString() @MaxLength(300) address?: string | null;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) mapsUrl?: string | null;
+  @IsOptional() @IsInt() @Min(0) @Max(100000) capacityMin?: number | null;
+  @IsOptional() @IsInt() @Min(1) @Max(100000) capacityMax?: number | null;
+  @IsOptional() @IsNumber() @Min(0) priceFrom?: number | null;
+  @IsOptional() @IsNumber() @Min(0) priceTo?: number | null;
+  @IsOptional() @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) @MaxLength(100, { each: true }) amenities?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(80, { each: true }) eventTypes?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUrl({ protocols: ["https"], require_protocol: true }, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
+  @IsOptional() @IsString() @MaxLength(40) phone?: string | null;
+  @IsOptional() @IsEmail() @MaxLength(180) email?: string | null;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) websiteUrl?: string | null;
+  @IsOptional() @IsString() @MaxLength(1000) bookingTerms?: string | null;
+  @IsOptional() @IsString() @MaxLength(1000) paymentTerms?: string | null;
+  @IsOptional() @IsString() @MaxLength(1000) cancellationTerms?: string | null;
+  @IsOptional() @IsString() vendorId?: string | null;
+  @IsOptional() @IsEnum(VenueStatus) status?: VenueStatus;
+  @IsOptional() @IsDateString() verifiedAt?: string;
+  @ValidateIf((body: VenuePatch) => body.status === VenueStatus.SUSPENDED)
+  @IsString() @MinLength(8) @MaxLength(500) reason?: string;
 }
 class LegalSourceInput {
   @IsString() @MinLength(3) title!: string;
@@ -297,6 +349,54 @@ export class AdminController {
       },
     });
     return vendor;
+  }
+  @Get("venues") venues() {
+    return this.db.venue.findMany({ orderBy: [{ status: "asc" }, { updatedAt: "desc" }] });
+  }
+  @Post("venues") async createVenue(@Body() body: VenueInput, @CurrentUser() user: SessionUser) {
+    if (body.capacityMin !== undefined && body.capacityMax !== undefined && body.capacityMin > body.capacityMax)
+      throw new BadRequestException("A capacidade mínima não pode ser superior à máxima.");
+    if (body.priceFrom !== undefined && body.priceTo !== undefined && body.priceFrom > body.priceTo)
+      throw new BadRequestException("O preço mínimo não pode ser superior ao máximo.");
+    if (body.vendorId && !await this.db.vendor.findUnique({ where: { id: body.vendorId }, select: { id: true } }))
+      throw new NotFoundException("Prestador associado não encontrado.");
+    const venue = await this.db.venue.create({ data: { ...body, status: VenueStatus.DRAFT } });
+    await this.db.auditLog.create({ data: { actorId: user.id, action: "VENUE_CREATED", resource: "Venue", resourceId: venue.id, metadata: { status: venue.status, venueType: venue.venueType } } });
+    return venue;
+  }
+  @Patch("venues/:id") async updateVenue(@Param("id") id: string, @Body() body: VenuePatch, @CurrentUser() user: SessionUser) {
+    const existing = await this.db.venue.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException("Espaço não encontrado.");
+    if (body.vendorId && !await this.db.vendor.findUnique({ where: { id: body.vendorId }, select: { id: true } }))
+      throw new NotFoundException("Prestador associado não encontrado.");
+    const capacityMin = body.capacityMin === undefined ? existing.capacityMin : body.capacityMin;
+    const capacityMax = body.capacityMax === undefined ? existing.capacityMax : body.capacityMax;
+    const priceFrom = body.priceFrom === undefined ? (existing.priceFrom === null ? undefined : Number(existing.priceFrom)) : body.priceFrom;
+    const priceTo = body.priceTo === undefined ? (existing.priceTo === null ? undefined : Number(existing.priceTo)) : body.priceTo;
+    if (capacityMin !== null && capacityMax !== null && capacityMin !== undefined && capacityMax !== undefined && capacityMin > capacityMax)
+      throw new BadRequestException("A capacidade mínima não pode ser superior à máxima.");
+    if (priceFrom !== undefined && priceTo !== undefined && priceFrom !== null && priceTo !== null && priceFrom > priceTo)
+      throw new BadRequestException("O preço mínimo não pode ser superior ao máximo.");
+    if (body.status === VenueStatus.SUSPENDED && !body.reason)
+      throw new BadRequestException("Indica o motivo da suspensão para manter o histórico da decisão.");
+    const publishing = body.status === VenueStatus.PUBLISHED && existing.status !== VenueStatus.PUBLISHED;
+    if (body.status === VenueStatus.PUBLISHED || (existing.status === VenueStatus.PUBLISHED && !body.status)) {
+      const province = body.province ?? existing.province;
+      const municipality = body.municipality ?? existing.municipality;
+      const address = body.address ?? existing.address;
+      const hasContact = (body.phone ?? existing.phone) || (body.email ?? existing.email) || (body.websiteUrl ?? existing.websiteUrl);
+      const gallery = body.galleryUrls ?? existing.galleryUrls;
+      if (!province || !municipality || !address || !capacityMax || !hasContact || !gallery.length || (publishing && !body.verifiedAt))
+        throw new BadRequestException("Para publicar, confirma localização, capacidade, pelo menos um contacto, uma fotografia e a data de revisão dos dados.");
+    }
+    const data = Object.fromEntries(Object.entries(body).filter(([key, value]) => key !== "reason" && key !== "verifiedAt" && value !== undefined)) as Record<string, unknown>;
+    const profileChanged = Object.keys(data).some(key => !["status"].includes(key));
+    if (body.status === VenueStatus.PUBLISHED) data.verifiedAt = body.verifiedAt ? new Date(body.verifiedAt) : existing.verifiedAt;
+    else if (body.status === VenueStatus.SUSPENDED) data.verifiedAt = null;
+    else if (existing.status === VenueStatus.PUBLISHED && profileChanged) { data.status = VenueStatus.PENDING; data.verifiedAt = null; }
+    const venue = await this.db.venue.update({ where: { id }, data });
+    await this.db.auditLog.create({ data: { actorId: user.id, action: body.status ? "VENUE_STATUS_CHANGED" : "VENUE_PROFILE_UPDATED", resource: "Venue", resourceId: id, metadata: { from: existing.status, to: venue.status, reason: body.reason ?? null, changedFields: Object.keys(body).filter((field) => field !== "reason" && field !== "verifiedAt"), verifiedAt: venue.verifiedAt?.toISOString() ?? null } } });
+    return venue;
   }
   @Get("legal/sources") legalSources() {
     return this.db.legalSource.findMany({ orderBy: { title: "asc" } });
@@ -500,7 +600,7 @@ export class AdminController {
 
   @Get("audit") async audit() {
     return this.db.auditLog.findMany({
-      where: { resource: { in: ["Vendor", "VendorApplication", "PlatformConfig", "VendorClaim", "VendorPortfolioItem", "VendorProfileSubmission", "VendorReview"] } },
+      where: { resource: { in: ["Vendor", "Venue", "VendorApplication", "PlatformConfig", "VendorClaim", "VendorPortfolioItem", "VendorProfileSubmission", "VendorReview"] } },
       include: { actor: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: "desc" },
       take: 100,

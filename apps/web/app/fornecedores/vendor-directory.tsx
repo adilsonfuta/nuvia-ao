@@ -18,6 +18,7 @@ export default function VendorDirectory() {
   const [favoriteNotice, setFavoriteNotice] = useState('');
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [signedIn, setSignedIn] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [projectId, setProjectId] = useState('');
   const [categories, setCategories] = useState(defaultCategories);
   const [provinces, setProvinces] = useState(defaultProvinces);
@@ -57,9 +58,11 @@ export default function VendorDirectory() {
         await api('/auth/me');
       } catch {
         setSignedIn(false);
+        setSessionChecked(true);
         return;
       }
       setSignedIn(true);
+      setSessionChecked(true);
       const base = context ? `/projects/${context}/vendors/favorites` : '/favorites';
       let saved: {vendor:{id:string}}[];
       try {
@@ -124,8 +127,14 @@ export default function VendorDirectory() {
   if (province) directoryParams.set('province', province);
   const directoryQuery = directoryParams.toString();
   const directoryReturnPath = `/fornecedores${directoryQuery ? `?${directoryQuery}` : ''}`;
+  const dashboardHref = projectId
+    ? `/dashboard?tab=fornecedores&event=${encodeURIComponent(projectId)}`
+    : '/dashboard';
 
   return <>
+    {sessionChecked && <a className="catalog-back" href={projectId || signedIn ? dashboardHref : '/'}>
+      <span aria-hidden="true">←</span> {projectId ? 'Voltar ao evento' : signedIn ? 'Voltar à dashboard' : 'Início'}
+    </a>}
     <form className="catalog-filters" onSubmit={search} aria-label="Pesquisar fornecedores">
       <label className="sr-only" htmlFor="vendor-search">Serviço ou nome do fornecedor</label>
       <input id="vendor-search" value={term} onChange={event => setTerm(event.target.value)} placeholder="Ex.: fotografia, catering…"/>

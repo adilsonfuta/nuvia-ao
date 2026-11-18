@@ -29,6 +29,14 @@ type Vendor = {
   cancellationTerms: string | null;
   galleryUrls: string[];
 };
+type Venue = {
+  id: string; slug: string; name: string; venueType: string; description: string | null;
+  province: string | null; municipality: string | null; address: string | null; mapsUrl: string | null;
+  capacityMin: number | null; capacityMax: number | null; priceFrom: string | null; priceTo: string | null;
+  amenities: string[]; eventTypes: string[]; galleryUrls: string[]; phone: string | null; email: string | null;
+  websiteUrl: string | null; bookingTerms: string | null; paymentTerms: string | null; cancellationTerms: string | null;
+  status: "DRAFT" | "PENDING" | "PUBLISHED" | "SUSPENDED"; verifiedAt: string | null; createdAt: string; updatedAt: string; vendorId: string | null;
+};
 type Guide = {
   id: string;
   title: string;
@@ -99,6 +107,7 @@ const angolaProvinces = [
 
 export default function AdminConsole() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [venues, setVenues] = useState<Venue[]>([]);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
@@ -107,7 +116,7 @@ export default function AdminConsole() {
   const [platformConfig, setPlatformConfig] = useState<PlatformConfig>({ vendorCategories: [], provinces: [] });
   const [error, setError] = useState("A verificar o acesso…");
   const [tab, setTab] = useState<
-    "vendors" | "applications" | "vendorReview" | "guides" | "legal" | "config" | "history"
+    "vendors" | "venues" | "applications" | "vendorReview" | "guides" | "legal" | "config" | "history"
   >("vendors");
   const [vendorStatusFilter, setVendorStatusFilter] = useState("PENDING");
   const [vendorSearch, setVendorSearch] = useState("");
@@ -120,6 +129,32 @@ export default function AdminConsole() {
   const [decisionReason, setDecisionReason] = useState("");
   const [savingAction, setSavingAction] = useState(false);
   const [editingVendorId, setEditingVendorId] = useState("");
+  const [venueStatusFilter, setVenueStatusFilter] = useState("ALL");
+  const [venueSearch, setVenueSearch] = useState("");
+  const [editingVenueId, setEditingVenueId] = useState("");
+  const [showVenueForm, setShowVenueForm] = useState(false);
+  const [venueName, setVenueName] = useState("");
+  const [venueSlug, setVenueSlug] = useState("");
+  const [venueType, setVenueType] = useState("Quinta");
+  const [venueDescription, setVenueDescription] = useState("");
+  const [venueProvince, setVenueProvince] = useState("");
+  const [venueMunicipality, setVenueMunicipality] = useState("");
+  const [venueAddress, setVenueAddress] = useState("");
+  const [venueMapsUrl, setVenueMapsUrl] = useState("");
+  const [venueCapacityMin, setVenueCapacityMin] = useState("");
+  const [venueCapacityMax, setVenueCapacityMax] = useState("");
+  const [venuePriceFrom, setVenuePriceFrom] = useState("");
+  const [venuePriceTo, setVenuePriceTo] = useState("");
+  const [venueAmenities, setVenueAmenities] = useState("");
+  const [venueEventTypes, setVenueEventTypes] = useState("");
+  const [venueGalleryUrls, setVenueGalleryUrls] = useState("");
+  const [venuePhone, setVenuePhone] = useState("");
+  const [venueEmail, setVenueEmail] = useState("");
+  const [venueWebsite, setVenueWebsite] = useState("");
+  const [venueBookingTerms, setVenueBookingTerms] = useState("");
+  const [venuePaymentTerms, setVenuePaymentTerms] = useState("");
+  const [venueCancellationTerms, setVenueCancellationTerms] = useState("");
+  const [venueVendorId, setVenueVendorId] = useState("");
   const [vendorSlug, setVendorSlug] = useState("");
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
@@ -161,8 +196,9 @@ export default function AdminConsole() {
   const [officeMunicipality, setOfficeMunicipality] = useState("");
   const [officeUrl, setOfficeUrl] = useState("");
   async function refresh() {
-    const [v, g, s, o, a, h, c] = await Promise.all([
+    const [v, vn, g, s, o, a, h, c] = await Promise.all([
       api<Vendor[]>("/admin/vendors"),
+      api<Venue[]>("/admin/venues"),
       api<Guide[]>("/admin/guides"),
       api<Source[]>("/admin/legal/sources"),
       api<Office[]>("/admin/registry-offices"),
@@ -171,6 +207,7 @@ export default function AdminConsole() {
       api<PlatformConfig>("/admin/config"),
     ]);
     setVendors(v);
+    setVenues(vn);
     setGuides(g);
     setSources(s);
     setOffices(o);
@@ -190,6 +227,9 @@ export default function AdminConsole() {
   useEffect(() => {
     if (showVendorForm) requestAnimationFrame(() => document.querySelector(".vendor-admin-form")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }, [showVendorForm, editingVendorId]);
+  useEffect(() => {
+    if (showVenueForm) requestAnimationFrame(() => document.querySelector(".venue-admin-form")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [showVenueForm, editingVenueId]);
   async function run(action: () => Promise<unknown>): Promise<boolean> {
     if (savingAction) return false;
     setError("");
@@ -307,6 +347,53 @@ export default function AdminConsole() {
       });
       resetVendorForm();
     });
+  }
+  function resetVenueForm() {
+    setShowVenueForm(false); setEditingVenueId(""); setVenueName(""); setVenueSlug(""); setVenueType("Quinta");
+    setVenueDescription(""); setVenueProvince(""); setVenueMunicipality(""); setVenueAddress(""); setVenueMapsUrl("");
+    setVenueCapacityMin(""); setVenueCapacityMax(""); setVenuePriceFrom(""); setVenuePriceTo(""); setVenueAmenities("");
+    setVenueEventTypes(""); setVenueGalleryUrls(""); setVenuePhone(""); setVenueEmail(""); setVenueWebsite("");
+    setVenueBookingTerms(""); setVenuePaymentTerms(""); setVenueCancellationTerms(""); setVenueVendorId("");
+  }
+  function editVenue(venue: Venue) {
+    setEditingVenueId(venue.id); setShowVenueForm(true); setVenueName(venue.name); setVenueSlug(venue.slug); setVenueType(venue.venueType);
+    setVenueDescription(venue.description ?? ""); setVenueProvince(venue.province ?? ""); setVenueMunicipality(venue.municipality ?? "");
+    setVenueAddress(venue.address ?? ""); setVenueMapsUrl(venue.mapsUrl ?? ""); setVenueCapacityMin(venue.capacityMin == null ? "" : String(venue.capacityMin));
+    setVenueCapacityMax(venue.capacityMax == null ? "" : String(venue.capacityMax)); setVenuePriceFrom(venue.priceFrom ?? ""); setVenuePriceTo(venue.priceTo ?? "");
+    setVenueAmenities(venue.amenities.join("\n")); setVenueEventTypes(venue.eventTypes.join("\n")); setVenueGalleryUrls(venue.galleryUrls.join("\n"));
+    setVenuePhone(venue.phone ?? ""); setVenueEmail(venue.email ?? ""); setVenueWebsite(venue.websiteUrl ?? ""); setVenueBookingTerms(venue.bookingTerms ?? "");
+    setVenuePaymentTerms(venue.paymentTerms ?? ""); setVenueCancellationTerms(venue.cancellationTerms ?? ""); setVenueVendorId(venue.vendorId ?? "");
+  }
+  async function saveVenue(event: FormEvent) {
+    event.preventDefault();
+    await run(async () => {
+      const payload = {
+        name: venueName.trim(),
+        slug: editingVenueId ? venueSlug.trim() : venueName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now().toString().slice(-4),
+        venueType, description: venueDescription || null, province: venueProvince || null, municipality: venueMunicipality || null,
+        address: venueAddress || null, mapsUrl: venueMapsUrl || null, capacityMin: venueCapacityMin ? Number(venueCapacityMin) : null,
+        capacityMax: venueCapacityMax ? Number(venueCapacityMax) : null, priceFrom: venuePriceFrom ? Number(venuePriceFrom) : null,
+        priceTo: venuePriceTo ? Number(venuePriceTo) : null, amenities: splitLines(venueAmenities), eventTypes: splitLines(venueEventTypes),
+        galleryUrls: splitLines(venueGalleryUrls), phone: venuePhone || null, email: venueEmail || null, websiteUrl: venueWebsite || null,
+        bookingTerms: venueBookingTerms || null, paymentTerms: venuePaymentTerms || null, cancellationTerms: venueCancellationTerms || null,
+        vendorId: venueVendorId || null,
+      };
+      await api(editingVenueId ? `/admin/venues/${editingVenueId}` : "/admin/venues", { method: editingVenueId ? "PATCH" : "POST", body: JSON.stringify(payload) });
+      resetVenueForm();
+    });
+  }
+  async function updateVenueStatus(venue: Venue, status: Venue["status"]) {
+    let body: Record<string, unknown> = { status };
+    if (status === "PUBLISHED") {
+      if (!window.confirm("Confirmas que a localização, a capacidade, o contacto e a fotografia foram verificados com o responsável do espaço?")) return;
+      body.verifiedAt = new Date().toISOString();
+    }
+    if (status === "SUSPENDED") {
+      const reason = window.prompt("Indica o motivo para suspender este espaço:");
+      if (!reason || reason.trim().length < 8) return;
+      body.reason = reason.trim();
+    }
+    await run(() => api(`/admin/venues/${venue.id}`, { method: "PATCH", body: JSON.stringify(body) }));
   }
   async function savePlatformConfig(e: FormEvent) {
     e.preventDefault();
@@ -436,6 +523,8 @@ export default function AdminConsole() {
     );
   }
   const pendingVendors = vendors.filter((vendor) => vendor.status === "PENDING");
+  const pendingVenues = venues.filter((venue) => venue.status === "DRAFT" || venue.status === "PENDING");
+  const publishedVenues = venues.filter((venue) => venue.status === "PUBLISHED");
   const activeVendors = vendors.filter((vendor) => vendor.status === "ACTIVE");
   const suspendedVendors = vendors.filter((vendor) => vendor.status === "SUSPENDED");
   const openApplications = applications.filter((application) => ["NEW", "CONTACTED"].includes(application.status));
@@ -446,6 +535,11 @@ export default function AdminConsole() {
     return matchesStatus && matchesSearch && (!vendorCategoryFilter || vendor.category === vendorCategoryFilter) && (!vendorProvinceFilter || vendor.province === vendorProvinceFilter);
   });
   const visibleApplications = applications.filter((application) => applicationFilter === "ALL" || (applicationFilter === "OPEN" ? ["NEW", "CONTACTED"].includes(application.status) : application.status === applicationFilter));
+  const visibleVenues = venues.filter((venue) => {
+    const query = venueSearch.trim().toLocaleLowerCase("pt-AO");
+    const matchesSearch = !query || [venue.name, venue.venueType, venue.province, venue.municipality, venue.address].some((value) => value?.toLocaleLowerCase("pt-AO").includes(query));
+    return matchesSearch && (venueStatusFilter === "ALL" || (venueStatusFilter === "PENDING" ? ["DRAFT", "PENDING"].includes(venue.status) : venue.status === venueStatusFilter));
+  });
   function auditSummary(entry: AdminAudit) {
     const metadata = entry.metadata ?? {};
     if (entry.action === "VENDOR_STATUS_CHANGED" || entry.action === "VENDOR_REVIEWED") return `Estado: ${String(metadata.from ?? "—")} → ${String(metadata.to ?? "—")}${metadata.reason ? ` · Motivo: ${String(metadata.reason)}` : ""}`;
@@ -454,6 +548,9 @@ export default function AdminConsole() {
     if (entry.action === "VENDOR_APPLICATION_CONVERTED") return `Candidatura convertida no perfil ${String(metadata.vendorId ?? "")}`;
     if (entry.action === "PLATFORM_CATALOG_CONFIG_UPDATED") return "Categorias e províncias do directório actualizadas.";
     if (entry.action === "VENDOR_CREATED") return "Perfil criado como pendente de revisão.";
+    if (entry.action === "VENUE_CREATED") return "Espaço registado como rascunho.";
+    if (entry.action === "VENUE_STATUS_CHANGED") return `Estado do espaço: ${String(metadata.from ?? "—")} → ${String(metadata.to ?? "—")}${metadata.reason ? ` · Motivo: ${String(metadata.reason)}` : ""}`;
+    if (entry.action === "VENUE_PROFILE_UPDATED") return `Perfil do espaço actualizado · Campos: ${Array.isArray(metadata.changedFields) ? metadata.changedFields.map(String).join(", ") : "detalhes revistos"}`;
     return entry.action.replaceAll("_", " ").toLocaleLowerCase("pt-AO");
   }
   return (
@@ -465,7 +562,7 @@ export default function AdminConsole() {
         <div>
           <p className="eyebrow">Backoffice</p>
           <h1>Administração</h1>
-          <p>Fila de fornecedores, conteúdos e operações da plataforma.</p>
+          <p>Fornecedores, espaços, conteúdos e operações da plataforma.</p>
         </div>
         <a className="button button-outline" href="/dashboard">
           Ir para o painel
@@ -491,11 +588,13 @@ export default function AdminConsole() {
             <button className={tab === "applications" ? "selected" : ""} onClick={() => setTab("applications")}><small>Candidaturas abertas</small><strong>{openApplications.length}</strong><span>Novas ou contactadas</span></button>
             <button className={tab === "vendors" && vendorStatusFilter === "ACTIVE" ? "selected" : ""} onClick={() => { setTab("vendors"); setVendorStatusFilter("ACTIVE"); }}><small>Fornecedores activos</small><strong>{activeVendors.length}</strong><span>Visíveis no directório</span></button>
             <button className={tab === "vendors" && vendorStatusFilter === "SUSPENDED" ? "selected" : ""} onClick={() => { setTab("vendors"); setVendorStatusFilter("SUSPENDED"); }}><small>Fornecedores suspensos</small><strong>{suspendedVendors.length}</strong><span>Fora dos resultados públicos</span></button>
+            <button className={tab === "venues" ? "selected" : ""} onClick={() => setTab("venues")}><small>Espaços publicados</small><strong>{publishedVenues.length}</strong><span>{pendingVenues.length} por preparar ou rever</span></button>
           </section>
           <nav className="admin-tabs">
             {(
               [
                 ["vendors", "Fornecedores"],
+                ["venues", `Espaços${pendingVenues.length ? ` (${pendingVenues.length})` : ""}`],
                 [
                   "applications",
                     `Candidaturas${openApplications.length ? ` (${openApplications.length})` : ""}`,
@@ -516,6 +615,43 @@ export default function AdminConsole() {
               </button>
             ))}
           </nav>
+          {tab === "venues" && (
+            <>
+              <header className="admin-workbar"><div><p className="eyebrow">Catálogo público</p><h2>Gestão de espaços</h2><p>Publica apenas informação confirmada com o responsável. A Nuvia não apresenta disponibilidade ou preços como garantidos.</p></div><button className="button button-primary" onClick={() => { resetVenueForm(); setShowVenueForm(true); }}>+ Registar espaço</button></header>
+              <div className={`admin-grid ${showVenueForm ? "with-form" : "list-only"}`}>
+                <section className="dash-panel">
+                  <div className="admin-filter-bar"><label className="admin-search">Pesquisar<input value={venueSearch} onChange={event => setVenueSearch(event.target.value)} placeholder="Nome, tipo ou localização" /></label><label>Estado<select value={venueStatusFilter} onChange={event => setVenueStatusFilter(event.target.value)}><option value="ALL">Todos</option><option value="PENDING">Por preparar/rever</option><option value="PUBLISHED">Publicados</option><option value="SUSPENDED">Suspensos</option></select></label><button type="button" className="button button-outline compact" onClick={() => { setVenueSearch(""); setVenueStatusFilter("ALL"); }}>Limpar</button></div>
+                  {visibleVenues.length ? visibleVenues.map(venue => <article className="admin-row venue-admin-row" key={venue.id}>
+                    <span><strong>{venue.name}</strong><small>{venue.venueType} · {[venue.municipality, venue.province].filter(Boolean).join(", ") || "Localização por preencher"}</small><small>{venue.capacityMax ? `${venue.capacityMin ?? 1}–${venue.capacityMax} pessoas` : "Capacidade por confirmar"} · {venue.priceFrom || venue.priceTo ? `${formatAOA(venue.priceFrom)} – ${formatAOA(venue.priceTo)}` : "Preço sob consulta"}</small><small>Estado: {venue.status === "DRAFT" ? "Rascunho" : venue.status === "PENDING" ? "Por rever" : venue.status === "PUBLISHED" ? "Publicado" : "Suspenso"}{venue.verifiedAt ? ` · Dados revistos em ${new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(venue.verifiedAt))}` : ""}</small><small>{venue.phone || venue.email || venue.websiteUrl || "Contacto por preencher"}{venue.galleryUrls.length ? ` · ${venue.galleryUrls.length} fotografia(s)` : " · Sem fotografias"}</small></span>
+                    <div>{venue.status === "PUBLISHED" && <a href={`/espacos/${venue.slug}`} target="_blank" rel="noreferrer">Pré-visualizar</a>}<button type="button" disabled={savingAction} onClick={() => editVenue(venue)}>Editar</button>{venue.status === "PUBLISHED" ? <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "SUSPENDED")}>Suspender</button> : venue.status === "SUSPENDED" ? <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "PENDING")}>Voltar para revisão</button> : <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "PUBLISHED")}>Confirmar e publicar</button>}</div>
+                  </article>) : <p className="empty-copy">{venueSearch || venueStatusFilter !== "ALL" ? "Não encontrámos espaços com estes filtros." : "Ainda não há espaços registados. Adiciona os primeiros espaços reais para preparar o catálogo."}</p>}
+                </section>
+                {showVenueForm && <form className="dash-panel admin-form venue-admin-form" onSubmit={saveVenue}>
+                  <h2>{editingVenueId ? "Editar espaço" : "Registar espaço"}</h2>
+                  <p>O espaço começa como rascunho. Para publicar, confirma localização, lotação, contacto e pelo menos uma fotografia com o responsável.</p>
+                  <label>Nome do espaço<input required minLength={2} maxLength={120} value={venueName} onChange={event => setVenueName(event.target.value)} placeholder="Ex.: Quinta das Acácias" /></label>
+                  {editingVenueId && <label>Endereço do perfil<input required value={venueSlug} onChange={event => setVenueSlug(event.target.value)} /></label>}
+                  <label>Tipo de espaço<select value={venueType} onChange={event => setVenueType(event.target.value)}><option>Quinta</option><option>Salão de festas</option><option>Hotel</option><option>Restaurante</option><option>Praia ou espaço ao ar livre</option><option>Outro</option></select></label>
+                  <label>Descrição<textarea maxLength={2500} value={venueDescription} onChange={event => setVenueDescription(event.target.value)} /></label>
+                  <div className="admin-form-pair"><label>Província<input value={venueProvince} onChange={event => setVenueProvince(event.target.value)} /></label><label>Município<input value={venueMunicipality} onChange={event => setVenueMunicipality(event.target.value)} /></label></div>
+                  <label>Endereço<input maxLength={300} value={venueAddress} onChange={event => setVenueAddress(event.target.value)} placeholder="Bairro, rua ou referência" /></label>
+                  <label>Link de localização (HTTPS)<input type="url" value={venueMapsUrl} onChange={event => setVenueMapsUrl(event.target.value)} placeholder="https://maps.google.com/…" /></label>
+                  <div className="admin-form-pair"><label>Capacidade mínima<input type="number" min="0" value={venueCapacityMin} onChange={event => setVenueCapacityMin(event.target.value)} /></label><label>Capacidade máxima<input type="number" min="1" value={venueCapacityMax} onChange={event => setVenueCapacityMax(event.target.value)} /></label></div>
+                  <div className="admin-form-pair"><label>Preço desde (Kz, opcional)<input type="number" min="0" step="any" value={venuePriceFrom} onChange={event => setVenuePriceFrom(event.target.value)} /></label><label>Preço até (Kz, opcional)<input type="number" min="0" step="any" value={venuePriceTo} onChange={event => setVenuePriceTo(event.target.value)} /></label></div>
+                  <label>Características, uma por linha<textarea value={venueAmenities} onChange={event => setVenueAmenities(event.target.value)} placeholder={"Estacionamento\nJardim\nCozinha de apoio"} /></label>
+                  <label>Tipos de evento, um por linha<textarea value={venueEventTypes} onChange={event => setVenueEventTypes(event.target.value)} placeholder={"Casamento\nAlambamento\nFesta"} /></label>
+                  <label>Fotografias (URLs HTTPS, uma por linha)<textarea value={venueGalleryUrls} onChange={event => setVenueGalleryUrls(event.target.value)} placeholder="https://…" /><small>Usa imagens autorizadas pelo responsável do espaço. Não acrescentes disponibilidade ou preços por suposição.</small></label>
+                  <div className="admin-form-pair"><label>Telefone<input value={venuePhone} onChange={event => setVenuePhone(event.target.value)} /></label><label>Email<input type="email" value={venueEmail} onChange={event => setVenueEmail(event.target.value)} /></label></div>
+                  <label>Website (HTTPS)<input type="url" value={venueWebsite} onChange={event => setVenueWebsite(event.target.value)} /></label>
+                  <label>Condições de reserva<textarea maxLength={1000} value={venueBookingTerms} onChange={event => setVenueBookingTerms(event.target.value)} /></label>
+                  <label>Condições de pagamento<textarea maxLength={1000} value={venuePaymentTerms} onChange={event => setVenuePaymentTerms(event.target.value)} /></label>
+                  <label>Política de cancelamento<textarea maxLength={1000} value={venueCancellationTerms} onChange={event => setVenueCancellationTerms(event.target.value)} /></label>
+                  <label>Prestador associado (opcional)<select value={venueVendorId} onChange={event => setVenueVendorId(event.target.value)}><option value="">Sem associação</option>{vendors.filter(vendor => vendor.status === "ACTIVE").map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</select></label>
+                  <div className="admin-form-actions"><button className="button button-primary" disabled={savingAction}>{savingAction ? "A guardar…" : editingVenueId ? "Guardar alterações" : "Guardar rascunho"}</button><button type="button" className="button button-outline" onClick={resetVenueForm}>Cancelar</button></div>
+                </form>}
+              </div>
+            </>
+          )}
           {tab === "vendors" && (
             <>
             <header className="admin-workbar"><div><p className="eyebrow">Operação</p><h2>Fila de fornecedores</h2><p>Revê primeiro os perfis pendentes e acompanha os restantes pelo estado.</p></div><button className="button button-primary" onClick={() => { resetVendorForm(); setShowVendorForm(true); }}>+ Registar fornecedor</button></header>
