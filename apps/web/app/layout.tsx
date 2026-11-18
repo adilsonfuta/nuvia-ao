@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
+import { ClarityTracking } from './components/clarity-tracking';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -10,5 +12,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="pt-AO"><body>{children}</body></html>;
+  return <html lang="pt-AO"><body>{children}<Suspense fallback={null}><ClarityTracking /></Suspense></body></html>;
 }
