@@ -46,6 +46,9 @@ services:
       RSVP_TOKEN_ENCRYPTION_KEY: ${RSVP_TOKEN_ENCRYPTION_KEY:?Set a base64 32-byte key}
       PROJECT_DOCUMENT_ENCRYPTION_KEY: ${PROJECT_DOCUMENT_ENCRYPTION_KEY:?Set a dedicated base64 32-byte key for private event documents}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      GA4_PROPERTY_ID: ${GA4_PROPERTY_ID:-}
+      GA4_SERVICE_ACCOUNT_EMAIL: ${GA4_SERVICE_ACCOUNT_EMAIL:-}
+      GA4_SERVICE_ACCOUNT_PRIVATE_KEY: ${GA4_SERVICE_ACCOUNT_PRIVATE_KEY:-}
       PORTFOLIO_STORAGE_DIR: /app/data/vendor-portfolio
       PRIVATE_UPLOAD_STORAGE_DIR: /app/data/private-contribution-proofs
       PROJECT_DOCUMENT_STORAGE_DIR: /app/data/private-project-documents

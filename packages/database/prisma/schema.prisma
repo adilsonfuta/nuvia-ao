@@ -121,8 +121,20 @@ enum NotificationType {
 
 enum UserRole {
   USER
+  SUPPORT
   MODERATOR
   ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum SupportRequestStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
 }
 
 enum VendorApplicationStatus {
@@ -156,6 +168,10 @@ model User {
   name            String?
   passwordHash    String
   role            UserRole         @default(USER)
+  accountStatus   AccountStatus    @default(ACTIVE)
+  suspendedAt     DateTime?
+  suspensionReason String?
+  lastLoginAt     DateTime?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   projects        ProjectMember[]
@@ -179,6 +195,7 @@ model User {
   respondedVendorReviews VendorReview[]           @relation("VendorReviewResponder")
   moderatedVendorReviewResponses VendorReview[]   @relation("VendorReviewResponseModerator")
   notifications   Notification[]
+  supportRequests SupportRequest[]
 }
 
 model Session {
@@ -203,6 +220,24 @@ model PasswordResetToken {
 
   @@index([userId, createdAt])
   @@index([expiresAt])
+}
+
+model SupportRequest {
+  id          String               @id @default(cuid())
+  userId      String?
+  requesterName String?
+  requesterEmail String?
+  subject     String
+  message     String
+  status      SupportRequestStatus @default(OPEN)
+  response    String?
+  respondedAt DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  user        User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, updatedAt])
+  @@index([userId, createdAt])
 }
 
 model RateLimitBucket {

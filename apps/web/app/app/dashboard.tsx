@@ -29,7 +29,7 @@ import { ActivityLogPanel } from "./activity-log-panel";
 import { DocumentsPanel } from "./documents-panel";
 import type { ProjectKind, ProjectSummary } from "@casar/contracts";
 
-type User = { id: string; email: string; name: string | null; role?: "USER" | "MODERATOR" | "ADMIN" };
+type User = { id: string; email: string; name: string | null; role?: "USER" | "SUPPORT" | "MODERATOR" | "ADMIN" };
 type Project = ProjectSummary & {
   budgetLimit: number | string | null;
   guestEstimate: number | null;
@@ -320,7 +320,16 @@ export default function Dashboard() {
   const [tab, setTab] = useState<Tab>("overview");
   const [teamSection, setTeamSection] = useState<"access" | "history">("access");
   const [openNavGroup, setOpenNavGroup] = useState<string | null | undefined>(undefined);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [navigationReady, setNavigationReady] = useState(false);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileMenuOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileMenuOpen]);
   const [settingsView, setSettingsView] = useState<"event" | "account">(
     "event",
   );
@@ -1350,18 +1359,25 @@ export default function Dashboard() {
     );
   return (
     <main className="dashboard-layout">
-      <aside className="dashboard-sidebar">
+      <aside className={`dashboard-sidebar${mobileMenuOpen ? " mobile-menu-open" : ""}`}>
         <a className="brand dashboard-brand" href="/dashboard" aria-label="Nuvia — voltar à dashboard">
           <Image className="nuvia-dashboard-logo" src="/brand/nuvia-logo.png" alt="Nuvia" width={240} height={75} priority />
         </a>
-        <nav aria-label="Navegação do projecto">
+        <button className="dashboard-mobile-menu-toggle" type="button" aria-label={mobileMenuOpen ? "Fechar menu" : "Abrir menu"} aria-expanded={mobileMenuOpen} aria-controls="dashboard-project-navigation" onClick={() => setMobileMenuOpen((open) => !open)}>
+          <span aria-hidden="true"><i /><i /><i /></span>
+          <span>{mobileMenuOpen ? "Fechar" : "Menu"}</span>
+        </button>
+        <button className="dashboard-mobile-logout" type="button" onClick={() => void logout()} aria-label="Terminar sessão">
+          <span aria-hidden="true">↪</span> Sair
+        </button>
+        <nav id="dashboard-project-navigation" aria-label="Navegação do projecto">
           {DASHBOARD_PRIMARY_TABS.filter(
             (item) => item.key !== "events" || projects.length > 0,
           ).map((item) => (
             <button
               className={`dashboard-nav-primary ${tab === item.key ? "current" : ""}`}
               aria-current={tab === item.key ? "page" : undefined}
-              onClick={() => { setTab(item.key); setOpenNavGroup(null); }}
+              onClick={() => { setTab(item.key); setOpenNavGroup(null); setMobileMenuOpen(false); }}
               key={item.key}
             >
               <span>{item.label}</span>
@@ -1390,7 +1406,7 @@ export default function Dashboard() {
                         type="button"
                         className={tab === key ? "current" : ""}
                         aria-current={tab === key ? "page" : undefined}
-                        onClick={() => { setTab(key); setOpenNavGroup(group.id); }}
+                        onClick={() => { setTab(key); setOpenNavGroup(group.id); setMobileMenuOpen(false); }}
                         key={key}
                       >{DASHBOARD_TAB_LABEL[key]}</button>
                     ))}
@@ -1407,6 +1423,14 @@ export default function Dashboard() {
             <span aria-hidden="true">↗</span>
           </a>
         )}
+        {user.role === "SUPPORT" && (
+          <a className="sidebar-admin-link" href="/admin?tab=support">
+            <span aria-hidden="true">✉</span>
+            Pedidos de suporte
+            <span aria-hidden="true">↗</span>
+          </a>
+        )}
+        <a className="sidebar-vendor-link" href="/suporte">Ajuda e suporte</a>
         <a className="sidebar-vendor-link" href="/fornecedor/gestao">
           Sou fornecedor · Gerir perfil <span aria-hidden="true">↗</span>
         </a>
@@ -1416,7 +1440,6 @@ export default function Dashboard() {
           </span>
           <div className="sidebar-user-info">
             <strong>{user.name || user.email}</strong>
-            <button onClick={() => void logout()}>Terminar sessão</button>
           </div>
         </div>
       </aside>

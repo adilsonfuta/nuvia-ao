@@ -24,6 +24,7 @@ Define no painel de variáveis da aplicação Compose, sem guardar valores reais
 - `RSVP_TOKEN_ENCRYPTION_KEY`: chave base64 de exactamente 32 bytes; gera com `openssl rand -base64 32`.
 - `PROJECT_DOCUMENT_ENCRYPTION_KEY`: chave Base64 dedicada de exactamente 32 bytes para cifrar ficheiros pessoais dos eventos; gera uma chave diferente com `openssl rand -base64 32` e mantém-na estável.
 - `TRUST_PROXY_HOPS`: usa `1` se a instalação tiver apenas o proxy confiável do Coolify antes da API; ajusta se a topologia mudar.
+- `GA4_PROPERTY_ID`, `GA4_SERVICE_ACCOUNT_EMAIL` e `GA4_SERVICE_ACCOUNT_PRIVATE_KEY`: opcionais; define os três apenas se quiseres mostrar relatórios do GA4 na tab privada **Administração → Métricas**. A chave privada deve ficar como segredo do serviço `api`, nunca no serviço `web`.
 
 `API_INTERNAL_URL` e `NEXT_PUBLIC_API_URL` já estão definidos no Compose. A aplicação Web chama a API pelo mesmo domínio através do rewrite do Next.js; a ligação entre containers usa `http://api:4000/api/v1`.
 

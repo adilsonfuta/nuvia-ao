@@ -1,8 +1,11 @@
 "use client";
 import { FormEvent, useEffect, useState } from "react";
-import { api } from "../lib/api";
+import Link from "next/link";
+import { api, ApiError } from "../lib/api";
 import { formatAOA } from "../lib/format";
 import { VendorModerationWorkspace } from "./vendor-moderation-workspace";
+import SupportStaffWorkspace from "../suporte/gestao/support-staff-workspace";
+import AnalyticsPanel from "./analytics-panel";
 
 type Vendor = {
   id: string;
@@ -77,6 +80,8 @@ type VendorApplication = {
 };
 type AdminAudit = { id: string; action: string; resource: string; resourceId: string; metadata: Record<string, unknown> | null; createdAt: string; actor: { name: string | null; email: string } };
 type PlatformConfig = { vendorCategories: string[]; provinces: string[] };
+type AdminAccount = { id: string; name: string | null; email: string; role: "USER" | "SUPPORT" | "MODERATOR" | "ADMIN"; accountStatus: "ACTIVE" | "SUSPENDED"; createdAt: string; lastLoginAt: string | null; suspendedAt: string | null; suspensionReason: string | null; _count: { projects: number; supportRequests: number } };
+type AdminAccountPage = { items: AdminAccount[]; total: number; page: number; pageSize: number; activeCount: number; suspendedCount: number };
 const splitLines = (value: string) =>
   value
     .split("\n")
@@ -114,10 +119,23 @@ export default function AdminConsole() {
   const [offices, setOffices] = useState<Office[]>([]);
   const [applications, setApplications] = useState<VendorApplication[]>([]);
   const [audit, setAudit] = useState<AdminAudit[]>([]);
+  const [accounts, setAccounts] = useState<AdminAccountPage>({ items: [], total: 0, page: 1, pageSize: 25, activeCount: 0, suspendedCount: 0 });
+  const [currentRole, setCurrentRole] = useState("");
+  const [accountSearch, setAccountSearch] = useState("");
+  const [accountStatusFilter, setAccountStatusFilter] = useState("ALL");
+  const [accountRoleFilter, setAccountRoleFilter] = useState("ALL");
+  const [accountCreatedFrom, setAccountCreatedFrom] = useState("");
+  const [accountCreatedTo, setAccountCreatedTo] = useState("");
+  const [accountRoleDrafts, setAccountRoleDrafts] = useState<Record<string, "USER" | "SUPPORT">>({});
+  const [accountDecision, setAccountDecision] = useState<{ account: AdminAccount; reason: string } | null>(null);
+  const [adminPromotion, setAdminPromotion] = useState<{ account: AdminAccount; confirmEmail: string; currentPassword: string; reason: string } | null>(null);
+  const [openSupportCount, setOpenSupportCount] = useState(0);
   const [platformConfig, setPlatformConfig] = useState<PlatformConfig>({ vendorCategories: [], provinces: [] });
   const [error, setError] = useState("A verificar o acesso…");
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
+  const [successNotice, setSuccessNotice] = useState("");
   const [tab, setTab] = useState<
-    "vendors" | "venues" | "applications" | "vendorReview" | "guides" | "legal" | "config" | "history"
+    "vendors" | "venues" | "applications" | "vendorReview" | "guides" | "legal" | "config" | "history" | "accounts" | "support" | "analytics"
   >("vendors");
   const [vendorStatusFilter, setVendorStatusFilter] = useState("PENDING");
   const [vendorSearch, setVendorSearch] = useState("");
@@ -198,7 +216,23 @@ export default function AdminConsole() {
   const [officeMunicipality, setOfficeMunicipality] = useState("");
   const [officeUrl, setOfficeUrl] = useState("");
   async function refresh() {
-    const [v, vn, g, s, o, a, h, c] = await Promise.all([
+    const auth = await api<{ user: { role: string } }>("/auth/me");
+    setCurrentRole(auth.user.role);
+    const requestedTab = new URLSearchParams(window.location.search).get("tab");
+    if (auth.user.role === "SUPPORT") {
+      setTab("support");
+      setError("");
+      setErrorStatus(null);
+      return;
+    }
+    if (requestedTab === "support") setTab("support");
+    const accountParams = new URLSearchParams({ page: "1" });
+    if (accountSearch.trim()) accountParams.set("q", accountSearch.trim());
+    if (accountStatusFilter !== "ALL") accountParams.set("status", accountStatusFilter);
+    if (accountRoleFilter !== "ALL") accountParams.set("role", accountRoleFilter);
+    if (accountCreatedFrom) accountParams.set("createdFrom", accountCreatedFrom);
+    if (accountCreatedTo) accountParams.set("createdTo", accountCreatedTo);
+    const [v, vn, g, s, o, a, h, c, accountPageResult, openSupport] = await Promise.all([
       api<Vendor[]>("/admin/vendors"),
       api<Venue[]>("/admin/venues"),
       api<Guide[]>("/admin/guides"),
@@ -207,6 +241,10 @@ export default function AdminConsole() {
       api<VendorApplication[]>("/admin/vendor-applications"),
       api<AdminAudit[]>("/admin/audit"),
       api<PlatformConfig>("/admin/config"),
+      auth.user.role === "ADMIN"
+        ? api<AdminAccountPage>(`/admin/accounts?${accountParams.toString()}`)
+        : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 25, activeCount: 0, suspendedCount: 0 }),
+      api<{ total: number }>("/support/requests?status=OPEN&page=1"),
     ]);
     setVendors(v);
     setVenues(vn);
@@ -215,15 +253,21 @@ export default function AdminConsole() {
     setOffices(o);
     setApplications(a);
     setAudit(h);
+    setAccounts(accountPageResult);
+    setOpenSupportCount(openSupport.total);
     setPlatformConfig({ vendorCategories: c.vendorCategories ?? [], provinces: c.provinces ?? [] });
     setConfigCategoriesText((c.vendorCategories ?? []).join("\n"));
     setConfigProvincesText((c.provinces ?? []).join("\n"));
     setError("");
+    setErrorStatus(null);
     if (!sourceId && s[0]) setSourceId(s[0].id);
   }
   useEffect(() => {
     refresh()
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "Não foi possível carregar a administração.");
+        setErrorStatus(e instanceof ApiError ? e.status : null);
+      })
       .finally(() => setLoading(false));
   }, []);
   useEffect(() => {
@@ -235,10 +279,12 @@ export default function AdminConsole() {
   async function run(action: () => Promise<unknown>): Promise<boolean> {
     if (savingAction) return false;
     setError("");
+    setSuccessNotice("");
     setSavingAction(true);
     try {
       await action();
       await refresh();
+      setSuccessNotice("Alterações guardadas com sucesso.");
       return true;
     } catch (e) {
       setError(
@@ -248,6 +294,60 @@ export default function AdminConsole() {
     } finally {
       setSavingAction(false);
     }
+  }
+  async function loadAccounts(page = 1, filters = {
+    search: accountSearch,
+    status: accountStatusFilter,
+    role: accountRoleFilter,
+    createdFrom: accountCreatedFrom,
+    createdTo: accountCreatedTo,
+  }) {
+    const params = new URLSearchParams({ page: String(page) });
+    if (filters.search.trim()) params.set("q", filters.search.trim());
+    if (filters.status !== "ALL") params.set("status", filters.status);
+    if (filters.role !== "ALL") params.set("role", filters.role);
+    if (filters.createdFrom) params.set("createdFrom", filters.createdFrom);
+    if (filters.createdTo) params.set("createdTo", filters.createdTo);
+    setError("");
+    try {
+      setAccounts(await api<AdminAccountPage>(`/admin/accounts?${params.toString()}`));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Não foi possível pesquisar as contas.");
+    }
+  }
+  async function saveAccountStatus() {
+    if (!accountDecision || accountDecision.reason.trim().length < 8) return;
+    const { account, reason } = accountDecision;
+    const succeeded = await run(() => api(`/admin/accounts/${account.id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "SUSPENDED", reason: reason.trim() }),
+    }));
+    if (succeeded) setAccountDecision(null);
+  }
+  async function changeAccountStatus(account: AdminAccount) {
+    if (account.accountStatus === "SUSPENDED") {
+      await run(() => api(`/admin/accounts/${account.id}/status`, {
+        method: "PATCH", body: JSON.stringify({ status: "ACTIVE" }),
+      }));
+      return;
+    }
+    setAccountDecision({ account, reason: "" });
+  }
+  async function changeAccountRole(account: AdminAccount) {
+    const role = accountRoleDrafts[account.id] ?? account.role;
+    if (role === account.role) return;
+    await run(() => api(`/admin/accounts/${account.id}/role`, {
+      method: "PATCH", body: JSON.stringify({ role }),
+    }));
+  }
+  async function promoteAccountToAdmin() {
+    if (!adminPromotion || adminPromotion.confirmEmail.trim().toLocaleLowerCase("pt-AO") !== adminPromotion.account.email.toLocaleLowerCase("pt-AO") || adminPromotion.reason.trim().length < 8 || !adminPromotion.currentPassword) return;
+    const { account, confirmEmail, currentPassword, reason } = adminPromotion;
+    const succeeded = await run(() => api(`/admin/accounts/${account.id}/promote-admin`, {
+      method: "PATCH",
+      body: JSON.stringify({ confirmEmail: confirmEmail.trim(), currentPassword, reason: reason.trim() }),
+    }));
+    if (succeeded) setAdminPromotion(null);
   }
   async function reviewVendor(v: Vendor, status: "ACTIVE" | "SUSPENDED") {
     if (status === "SUSPENDED") {
@@ -527,9 +627,6 @@ export default function AdminConsole() {
   }
   const pendingVendors = vendors.filter((vendor) => vendor.status === "PENDING");
   const pendingVenues = venues.filter((venue) => venue.status === "DRAFT" || venue.status === "PENDING");
-  const publishedVenues = venues.filter((venue) => venue.status === "PUBLISHED");
-  const activeVendors = vendors.filter((vendor) => vendor.status === "ACTIVE");
-  const suspendedVendors = vendors.filter((vendor) => vendor.status === "SUSPENDED");
   const openApplications = applications.filter((application) => ["NEW", "CONTACTED"].includes(application.status));
   const visibleVendors = vendors.filter((vendor) => {
     const matchesStatus = vendorStatusFilter === "ALL" || vendor.status === vendorStatusFilter;
@@ -543,6 +640,7 @@ export default function AdminConsole() {
     const matchesSearch = !query || [venue.name, venue.venueType, venue.province, venue.municipality, venue.address].some((value) => value?.toLocaleLowerCase("pt-AO").includes(query));
     return matchesSearch && (venueStatusFilter === "ALL" || (venueStatusFilter === "PENDING" ? ["DRAFT", "PENDING"].includes(venue.status) : venue.status === venueStatusFilter));
   });
+  const hasAccountFilters = Boolean(accountSearch.trim() || accountStatusFilter !== "ALL" || accountRoleFilter !== "ALL" || accountCreatedFrom || accountCreatedTo);
   function auditSummary(entry: AdminAudit) {
     const metadata = entry.metadata ?? {};
     if (entry.action === "VENDOR_STATUS_CHANGED" || entry.action === "VENDOR_REVIEWED") return `Estado: ${String(metadata.from ?? "—")} → ${String(metadata.to ?? "—")}${metadata.reason ? ` · Motivo: ${String(metadata.reason)}` : ""}`;
@@ -554,61 +652,69 @@ export default function AdminConsole() {
     if (entry.action === "VENUE_CREATED") return "Espaço registado como rascunho.";
     if (entry.action === "VENUE_STATUS_CHANGED") return `Estado do espaço: ${String(metadata.from ?? "—")} → ${String(metadata.to ?? "—")}${metadata.reason ? ` · Motivo: ${String(metadata.reason)}` : ""}`;
     if (entry.action === "VENUE_PROFILE_UPDATED") return `Perfil do espaço actualizado · Campos: ${Array.isArray(metadata.changedFields) ? metadata.changedFields.map(String).join(", ") : "detalhes revistos"}`;
+    if (entry.action === "ACCOUNT_SUSPENDED") return `Conta suspensa · Motivo: ${String(metadata.reason ?? "—")}`;
+    if (entry.action === "ACCOUNT_REACTIVATED") return "Conta reactivada.";
+    if (entry.action === "ACCOUNT_ROLE_CHANGED") return `Papel da conta: ${String(metadata.from ?? "—")} → ${String(metadata.to ?? "—")}`;
+    if (entry.action === "ACCOUNT_ADMIN_PROMOTED") return `Conta promovida a administradora · Motivo: ${String(metadata.reason ?? "—")}`;
+    if (entry.action === "SUPPORT_REQUEST_CREATED") return "Pedido de suporte recebido.";
+    if (entry.action === "SUPPORT_REQUEST_ANSWERED") return "Resposta de suporte registada.";
+    if (entry.action === "SUPPORT_REQUEST_STATUS_CHANGED") return `Estado do pedido: ${String(metadata.from ?? "—")} → ${String(metadata.to ?? "—")}`;
     return entry.action.replaceAll("_", " ").toLocaleLowerCase("pt-AO");
   }
+  const adminTabs = [
+    ["vendors", "Fornecedores"],
+    ["venues", `Espaços${pendingVenues.length ? ` (${pendingVenues.length})` : ""}`],
+    ["applications", `Candidaturas${openApplications.length ? ` (${openApplications.length})` : ""}`],
+    ["vendorReview", "Confiança e revisão"],
+    ["guides", "Guias"],
+    ["legal", "Fontes e requisitos"],
+    ["config", "Configurações"],
+    ...(currentRole === "ADMIN" ? [["accounts", "Contas"]] as const : []),
+    ...(currentRole === "ADMIN" ? [["analytics", "Métricas"]] as const : []),
+    ["support", `Pedidos de suporte${openSupportCount ? ` (${openSupportCount})` : ""}`],
+    ["history", "Histórico"],
+  ] as const;
   return (
     <main className="admin-page">
-      <a className="planner-back" href="/">
-        ← Nuvia
-      </a>
+      <Link className="planner-back" href="/dashboard">
+        ← Voltar à dashboard
+      </Link>
       <div className="admin-head">
         <div>
           <p className="eyebrow">Backoffice</p>
-          <h1>Administração</h1>
-          <p>Fornecedores, espaços, conteúdos e operações da plataforma.</p>
+          <h1>{currentRole === "SUPPORT" ? "Pedidos de suporte" : "Administração"}</h1>
+          <p>{currentRole === "SUPPORT" ? "Consulta e responde aos pedidos de ajuda dos utilizadores." : "Fornecedores, espaços, conteúdos e operações da plataforma."}</p>
         </div>
-        <a className="button button-outline" href="/dashboard">
-          Ir para o painel
-        </a>
       </div>
+      {successNotice && <div className="admin-success-notice" role="status"><span aria-hidden="true">✓</span><p>{successNotice}</p><button type="button" aria-label="Fechar confirmação" onClick={() => setSuccessNotice("")}>×</button></div>}
       {loading ? (
         <p>{error}</p>
       ) : error ? (
         <section className="catalog-empty">
-          <h2>Acesso não disponível</h2>
+          <h2>{errorStatus === 401 || errorStatus === 403 ? "Acesso não disponível" : "Não foi possível carregar o backoffice"}</h2>
           <p>{error}</p>
-          <p>
-            É necessário entrar com uma conta de administração ou moderação.
-          </p>
-          <a className="button button-primary" href="/entrar?next=%2Fadmin">
-            Entrar
-          </a>
+          {errorStatus === 401 ? (
+            <a className="button button-primary" href="/entrar?next=%2Fadmin">Entrar</a>
+          ) : errorStatus === 403 ? (
+            <p>Esta conta não tem permissões de administração ou moderação.</p>
+          ) : (
+            <>
+              <p>O serviço de administração encontrou um erro. Confirma se a API está activa e se as migrações da base de dados foram aplicadas.</p>
+              <button className="button button-primary" type="button" onClick={() => { setLoading(true); refresh().catch((e) => { setError(e instanceof Error ? e.message : "Não foi possível carregar a administração."); setErrorStatus(e instanceof ApiError ? e.status : null); }).finally(() => setLoading(false)); }}>Tentar novamente</button>
+            </>
+          )}
         </section>
       ) : (
         <>
-          <section className="admin-summary-grid" aria-label="Resumo da operação">
+          {currentRole !== "SUPPORT" && <section className="admin-summary-grid" aria-label="Resumo da operação">
             <button className={tab === "vendors" && vendorStatusFilter === "PENDING" ? "selected" : ""} onClick={() => { setTab("vendors"); setVendorStatusFilter("PENDING"); }}><small>Fornecedores por rever</small><strong>{pendingVendors.length}</strong><span>Perfis que aguardam decisão</span></button>
             <button className={tab === "applications" ? "selected" : ""} onClick={() => setTab("applications")}><small>Candidaturas abertas</small><strong>{openApplications.length}</strong><span>Novas ou contactadas</span></button>
-            <button className={tab === "vendors" && vendorStatusFilter === "ACTIVE" ? "selected" : ""} onClick={() => { setTab("vendors"); setVendorStatusFilter("ACTIVE"); }}><small>Fornecedores activos</small><strong>{activeVendors.length}</strong><span>Visíveis no directório</span></button>
-            <button className={tab === "vendors" && vendorStatusFilter === "SUSPENDED" ? "selected" : ""} onClick={() => { setTab("vendors"); setVendorStatusFilter("SUSPENDED"); }}><small>Fornecedores suspensos</small><strong>{suspendedVendors.length}</strong><span>Fora dos resultados públicos</span></button>
-            <button className={tab === "venues" ? "selected" : ""} onClick={() => setTab("venues")}><small>Espaços publicados</small><strong>{publishedVenues.length}</strong><span>{pendingVenues.length} por preparar ou rever</span></button>
-          </section>
-          <nav className="admin-tabs">
-            {(
-              [
-                ["vendors", "Fornecedores"],
-                ["venues", `Espaços${pendingVenues.length ? ` (${pendingVenues.length})` : ""}`],
-                [
-                  "applications",
-                    `Candidaturas${openApplications.length ? ` (${openApplications.length})` : ""}`,
-                ],
-                ["vendorReview", "Confiança e revisão"],
-                ["guides", "Guias"],
-                ["legal", "Fontes e requisitos"],
-                ["config", "Configurações"],
-                ["history", "Histórico"],
-              ] as const
-            ).map(([key, label]) => (
+            <button className={tab === "support" ? "selected" : ""} onClick={() => setTab("support")}><small>Pedidos de suporte</small><strong>{openSupportCount}</strong><span>Aguardam resposta da equipa</span></button>
+            <button className={tab === "venues" && venueStatusFilter === "PENDING" ? "selected" : ""} onClick={() => { setTab("venues"); setVenueStatusFilter("PENDING"); }}><small>Espaços por rever</small><strong>{pendingVenues.length}</strong><span>Rascunhos ou pendentes de validação</span></button>
+          </section>}
+          {currentRole !== "SUPPORT" && <nav className="admin-tabs">
+            <div className="admin-tabs-links">
+              {adminTabs.map(([key, label]) => (
               <button
                 className={tab === key ? "current" : ""}
                 onClick={() => setTab(key)}
@@ -616,8 +722,10 @@ export default function AdminConsole() {
               >
                 {label}
               </button>
-            ))}
-          </nav>
+              ))}
+            </div>
+            <label className="admin-tabs-mobile"><span>Secção</span><select aria-label="Secção da administração" value={tab} onChange={(event) => setTab(event.target.value as typeof tab)}>{adminTabs.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          </nav>}
           {tab === "venues" && (
             <>
               <header className="admin-workbar"><div><p className="eyebrow">Catálogo público</p><h2>Gestão de espaços</h2><p>Publica apenas informação confirmada com o responsável. A Nuvia não apresenta disponibilidade ou preços como garantidos.</p></div><button className="button button-primary" onClick={() => { resetVenueForm(); setShowVenueForm(true); }}>+ Registar espaço</button></header>
@@ -1244,10 +1352,38 @@ export default function AdminConsole() {
               <button disabled={savingAction} className="button button-primary">{savingAction ? "A guardar…" : "Guardar configurações"}</button>
             </form>
           )}
+          {tab === "accounts" && currentRole === "ADMIN" && (
+            <section className="admin-accounts-workspace">
+              <header className="admin-workbar"><div><p className="eyebrow">Apoio e segurança</p><h2>Contas da plataforma</h2><p>Consulta o mínimo necessário para apoiar utilizadores. A Nuvia não permite entrar na conta de outra pessoa.</p></div></header>
+              <div className="admin-account-stats" aria-label="Resumo das contas"><article><small>Activas · toda a plataforma</small><strong>{accounts.activeCount}</strong></article><article><small>Suspensas · toda a plataforma</small><strong>{accounts.suspendedCount}</strong></article><article><small>Resultados com filtros</small><strong>{accounts.total}</strong></article></div>
+              <form className="admin-account-filters" onSubmit={(event) => { event.preventDefault(); void loadAccounts(1); }}>
+                <label>Pesquisar por nome ou email<input value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} placeholder="Nome ou email" /></label>
+                <label>Estado<select value={accountStatusFilter} onChange={(event) => setAccountStatusFilter(event.target.value)}><option value="ALL">Todas as contas</option><option value="ACTIVE">Activas</option><option value="SUSPENDED">Suspensas</option></select></label>
+                <label>Papel<select value={accountRoleFilter} onChange={(event) => setAccountRoleFilter(event.target.value)}><option value="ALL">Todos os papéis</option><option value="USER">Utilizador</option><option value="SUPPORT">Suporte</option><option value="MODERATOR">Moderador</option><option value="ADMIN">Administrador</option></select></label>
+                <label>Criada desde<input type="date" value={accountCreatedFrom} onChange={(event) => setAccountCreatedFrom(event.target.value)} /></label>
+                <label>Criada até<input type="date" min={accountCreatedFrom || undefined} value={accountCreatedTo} onChange={(event) => setAccountCreatedTo(event.target.value)} /></label>
+                <div className="admin-account-filter-actions"><button className="button button-primary">Pesquisar</button><button className="button button-outline" type="button" disabled={!hasAccountFilters} onClick={() => { setAccountSearch(""); setAccountStatusFilter("ALL"); setAccountRoleFilter("ALL"); setAccountCreatedFrom(""); setAccountCreatedTo(""); void loadAccounts(1, { search: "", status: "ALL", role: "ALL", createdFrom: "", createdTo: "" }); }}>Limpar</button></div>
+              </form>
+              <section className="dash-panel admin-account-list" aria-label="Contas encontradas">
+                {accounts.items.length ? accounts.items.map((account) => <article className="admin-account-row" key={account.id}>
+                  <div className="admin-account-identity"><strong>{account.name || "Nome por preencher"}</strong><span>{account.email}</span><small>Criada em {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(account.createdAt))} · {account._count.projects} evento(s) · Último início de sessão: {account.lastLoginAt ? new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(account.lastLoginAt)) : "Ainda não iniciou sessão"}</small>{account._count.supportRequests > 0 && <button type="button" className="admin-account-ticket-link" onClick={() => setTab("support")}>{account._count.supportRequests} pedido(s) de suporte por resolver</button>}{account.suspensionReason && <small>Motivo da suspensão: {account.suspensionReason}</small>}</div>
+                  <div className="admin-account-controls"><span className={`admin-account-status ${account.accountStatus.toLowerCase()}`}>{account.accountStatus === "ACTIVE" ? "Activa" : "Suspensa"}</span><small>Papel: {account.role === "SUPPORT" ? "Suporte" : account.role === "USER" ? "Utilizador" : account.role === "ADMIN" ? "Admin" : "Moderador"}</small>
+                    {(account.role === "USER" || account.role === "SUPPORT") && <div className="admin-account-role"><select aria-label={`Papel de ${account.email}`} value={accountRoleDrafts[account.id] ?? account.role} onChange={(event) => setAccountRoleDrafts((drafts) => ({ ...drafts, [account.id]: event.target.value as "USER" | "SUPPORT" }))} disabled={account.accountStatus === "SUSPENDED"}><option value="USER">Utilizador</option><option value="SUPPORT">Suporte</option></select><button type="button" className="button button-outline compact" disabled={savingAction || account.accountStatus === "SUSPENDED" || (accountRoleDrafts[account.id] ?? account.role) === account.role} onClick={() => void changeAccountRole(account)}>Guardar papel</button></div>}
+                    {(account.role === "USER" || account.role === "SUPPORT") && account.accountStatus === "ACTIVE" && <button type="button" className="button button-outline compact" disabled={savingAction} onClick={() => setAdminPromotion({ account, confirmEmail: "", currentPassword: "", reason: "" })}>Promover a administrador</button>}
+                    {(account.role === "USER" || account.role === "SUPPORT") && <button type="button" className={account.accountStatus === "ACTIVE" ? "button button-outline compact danger" : "button button-outline compact"} disabled={savingAction} onClick={() => void changeAccountStatus(account)}>{account.accountStatus === "ACTIVE" ? "Suspender conta" : "Reactivar conta"}</button>}
+                  </div>
+                </article>) : <div className="admin-account-empty"><strong>{hasAccountFilters ? "Nenhuma conta corresponde aos filtros" : "Ainda não há contas para apresentar"}</strong><p>{hasAccountFilters ? "Altera os critérios ou limpa os filtros para ver outras contas." : "As contas criadas na plataforma aparecerão aqui."}</p>{hasAccountFilters && <button className="button button-outline compact" type="button" onClick={() => { setAccountSearch(""); setAccountStatusFilter("ALL"); setAccountRoleFilter("ALL"); setAccountCreatedFrom(""); setAccountCreatedTo(""); void loadAccounts(1, { search: "", status: "ALL", role: "ALL", createdFrom: "", createdTo: "" }); }}>Limpar filtros</button>}</div>}
+                {accounts.total > accounts.pageSize && <div className="admin-account-pagination"><button className="button button-outline compact" disabled={accounts.page <= 1} onClick={() => void loadAccounts(accounts.page - 1)}>Anterior</button><span>Página {accounts.page} de {Math.ceil(accounts.total / accounts.pageSize)}</span><button className="button button-outline compact" disabled={accounts.page * accounts.pageSize >= accounts.total} onClick={() => void loadAccounts(accounts.page + 1)}>Seguinte</button></div>}
+              </section>
+              <p className="admin-account-footnote">Suspensões, reativações, alterações de papel e promoções administrativas ficam no histórico. A promoção exige a tua palavra-passe actual e confirmação do email da conta.</p>
+            </section>
+          )}
+          {tab === "support" && <SupportStaffWorkspace />}
+          {tab === "analytics" && currentRole === "ADMIN" && <AnalyticsPanel />}
           {tab === "history" && (
             <section className="dash-panel admin-history-panel">
               <h2>Histórico administrativo</h2>
-              <p className="empty-copy">Últimas 100 alterações em fornecedores, candidaturas e configurações.</p>
+              <p className="empty-copy">Últimas 100 alterações em contas, suporte, fornecedores, espaços e configurações.</p>
               {audit.length ? audit.map(entry => <article className="admin-row" key={entry.id}><span><strong>{auditSummary(entry)}</strong><small>{entry.actor.name || entry.actor.email} · {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.createdAt))}</small><small>{entry.resource} · {entry.resourceId}</small></span></article>) : <p className="empty-copy">Ainda não há acções registadas.</p>}
             </section>
           )}
@@ -1259,6 +1395,8 @@ export default function AdminConsole() {
         </p>
       )}
       {reasonDecision && <div className="admin-dialog-backdrop"><section className="admin-reason-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-reason-title"><button type="button" className="admin-dialog-close" aria-label="Fechar" onClick={() => setReasonDecision(null)}>×</button><p className="eyebrow">Registo de decisão</p><h2 id="admin-reason-title">{reasonDecision.status === "SUSPENDED" ? "Suspender fornecedor" : "Recusar candidatura"}</h2><p>Indica o motivo para <strong>{reasonDecision.label}</strong>. Esta informação fica no histórico da equipa.</p><label>Motivo<textarea autoFocus minLength={8} maxLength={500} required value={decisionReason} onChange={e => setDecisionReason(e.target.value)} placeholder="Resume os elementos que justificam a decisão…"/></label><small>{decisionReason.trim().length}/500 caracteres · mínimo 8</small><div><button type="button" className="button button-outline" disabled={savingAction} onClick={() => setReasonDecision(null)}>Cancelar</button><button type="button" className="button button-primary" disabled={savingAction || decisionReason.trim().length < 8} onClick={() => void saveDecisionReason()}>{savingAction ? "A guardar…" : "Confirmar decisão"}</button></div></section></div>}
+      {accountDecision && <div className="admin-dialog-backdrop"><section className="admin-reason-dialog" role="dialog" aria-modal="true" aria-labelledby="account-suspension-title"><button type="button" className="admin-dialog-close" aria-label="Fechar" onClick={() => setAccountDecision(null)}>×</button><p className="eyebrow">Registo de decisão</p><h2 id="account-suspension-title">Suspender conta</h2><p>Indica o motivo para <strong>{accountDecision.account.email}</strong>. As sessões activas serão terminadas e a pessoa terá de contactar o suporte.</p><label>Motivo<textarea autoFocus minLength={8} maxLength={500} required value={accountDecision.reason} onChange={(event) => setAccountDecision({ ...accountDecision, reason: event.target.value })} placeholder="Resume o motivo da suspensão…" /></label><small>{accountDecision.reason.trim().length}/500 caracteres · mínimo 8</small><div><button type="button" className="button button-outline" disabled={savingAction} onClick={() => setAccountDecision(null)}>Cancelar</button><button type="button" className="button button-primary" disabled={savingAction || accountDecision.reason.trim().length < 8} onClick={() => void saveAccountStatus()}>{savingAction ? "A guardar…" : "Suspender conta"}</button></div></section></div>}
+      {adminPromotion && <div className="admin-dialog-backdrop"><section className="admin-reason-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-promotion-title"><button type="button" className="admin-dialog-close" aria-label="Fechar" onClick={() => setAdminPromotion(null)}>×</button><p className="eyebrow">Permissões administrativas</p><h2 id="admin-promotion-title">Promover a administrador</h2><p><strong>{adminPromotion.account.name || adminPromotion.account.email}</strong> passará a ter acesso completo ao backoffice, incluindo gestão de contas e configurações da plataforma.</p><label>Confirma o email da conta<input autoFocus type="email" autoComplete="off" required value={adminPromotion.confirmEmail} onChange={(event) => setAdminPromotion({ ...adminPromotion, confirmEmail: event.target.value })} placeholder={adminPromotion.account.email} /></label><label>A tua palavra-passe de administrador<input type="password" autoComplete="current-password" required value={adminPromotion.currentPassword} onChange={(event) => setAdminPromotion({ ...adminPromotion, currentPassword: event.target.value })} /></label><label>Motivo da promoção<textarea minLength={8} maxLength={500} required value={adminPromotion.reason} onChange={(event) => setAdminPromotion({ ...adminPromotion, reason: event.target.value })} placeholder="Indica por que motivo esta conta precisa de acesso administrativo…" /></label><small>{adminPromotion.reason.trim().length}/500 caracteres · mínimo 8</small><div><button type="button" className="button button-outline" disabled={savingAction} onClick={() => setAdminPromotion(null)}>Cancelar</button><button type="button" className="button button-primary" disabled={savingAction || adminPromotion.confirmEmail.trim().toLocaleLowerCase("pt-AO") !== adminPromotion.account.email.toLocaleLowerCase("pt-AO") || !adminPromotion.currentPassword || adminPromotion.reason.trim().length < 8} onClick={() => void promoteAccountToAdmin()}>{savingAction ? "A promover…" : "Confirmar promoção"}</button></div></section></div>}
     </main>
   );
 }

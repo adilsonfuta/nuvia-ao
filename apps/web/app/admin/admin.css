@@ -139,6 +139,8 @@
   line-height: 1.55;
 }
 
+.admin-account-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0 16px}.admin-account-stats article{display:grid;gap:4px;padding:15px 16px;border:1px solid #ebe6dc;border-radius:14px;background:#fffefa}.admin-account-stats small,.admin-account-footnote{color:#768075;font-size:11px;line-height:1.5}.admin-account-stats strong{color:var(--forest);font:700 25px var(--serif)}.admin-account-filters{display:grid;grid-template-columns:minmax(200px,1fr) 180px auto;align-items:end;gap:10px;margin-bottom:14px;padding:14px;border:1px solid #ebe6dc;border-radius:14px;background:#fffefa}.admin-account-filters label{display:grid;gap:6px;color:#576256;font-size:11px;font-weight:700}.admin-account-filters input,.admin-account-filters select,.admin-account-role select{min-width:0;min-height:40px;padding:8px 10px;border:1px solid #ded9ce;border-radius:9px;background:#fff;color:#26382e;font:inherit}.admin-account-list{padding:4px 18px}.admin-account-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(170px,auto);gap:18px;padding:17px 0;border-bottom:1px solid #eee9df}.admin-account-identity{display:grid;align-content:start;gap:5px;min-width:0}.admin-account-identity>strong{color:var(--forest);font:700 16px/1.35 var(--serif);overflow-wrap:anywhere}.admin-account-identity>span{color:#3c4e40;font-size:13px;overflow-wrap:anywhere}.admin-account-identity>small,.admin-account-controls>small{color:#747d73;font-size:10px;line-height:1.5}.admin-account-ticket-link{justify-self:start;padding:0;border:0;background:none;color:#926c27;font:700 11px var(--sans);text-decoration:underline;cursor:pointer}.admin-account-controls{display:grid;justify-items:end;align-content:start;gap:8px}.admin-account-status{padding:5px 9px;border-radius:999px;background:#e8f2ee;color:#286342;font-size:10px;font-weight:750}.admin-account-status.suspended{background:#f8e9e6;color:#934b3f}.admin-account-role{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}.admin-account-pagination{display:flex;align-items:center;justify-content:center;gap:12px;padding:16px 0}.admin-account-pagination>span{color:#6e786e;font-size:11px}.admin-account-footnote{margin:12px 2px 0}
+
 @media (max-width: 900px) {
   .admin-page > .admin-grid.with-form {
     grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
@@ -174,6 +176,7 @@
     max-height: none;
     overflow: visible;
   }
+  .admin-account-row{grid-template-columns:1fr}.admin-account-controls{justify-items:start}.admin-account-role{justify-content:flex-start}.admin-account-filters{grid-template-columns:1fr}.admin-account-stats{grid-template-columns:1fr 1fr}
 }
 
 @media (max-width: 480px) {
@@ -198,3 +201,13 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.admin-tabs-links{display:flex;align-items:center;gap:6px;min-width:0}.admin-page>.admin-tabs .admin-tabs-links button{flex:0 0 auto;min-height:38px;padding:0 13px;border:1px solid transparent;border-radius:8px;background:transparent;color:#596256;font:600 11px var(--sans);white-space:nowrap;cursor:pointer;transition:background .16s,color .16s,border-color .16s}.admin-page>.admin-tabs .admin-tabs-links button:hover{background:#f5f3ec;color:var(--forest)}.admin-page>.admin-tabs .admin-tabs-links button.current{border-color:#dce6d5;background:#eaf1e5;color:#254c32}.admin-tabs-mobile{display:none}.admin-success-notice{display:flex;align-items:center;gap:10px;margin:-8px 0 16px;padding:10px 13px;border:1px solid #cfe2ce;border-radius:10px;background:#f2f8f0;color:#315b3d}.admin-success-notice>span{display:grid;place-items:center;flex:none;width:20px;height:20px;border-radius:50%;background:#dcebd7;font-size:12px;font-weight:800}.admin-success-notice p{flex:1;margin:0;font-size:11px;line-height:1.4}.admin-success-notice button{width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:#52705a;font-size:19px;cursor:pointer}.admin-success-notice button:hover{background:#e3efe0}.admin-page .admin-row>div button{min-height:36px;font-size:10px}
+
+@media(max-width:700px){.admin-page>.admin-tabs{overflow:visible}.admin-tabs-links{display:none}.admin-tabs-mobile{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px;width:100%;color:#687367;font-size:11px;font-weight:700}.admin-tabs-mobile select{width:100%;min-width:0;min-height:42px;padding:8px 34px 8px 11px;border:1px solid #ded9ce;border-radius:9px;background:#fffefa;color:#26382e;font:600 12px var(--sans)}.admin-page .admin-row>div button{min-height:40px;padding:8px 11px;font-size:11px}}
+
+.admin-account-filters{grid-template-columns:minmax(210px,1.35fr) repeat(2,minmax(125px,.8fr)) repeat(2,minmax(145px,.9fr)) auto;align-items:end}.admin-account-filters label{min-width:0}.admin-account-filter-actions{display:flex;gap:7px}.admin-account-filter-actions .button{min-height:40px;padding:0 12px;white-space:nowrap}.admin-account-empty{display:grid;justify-items:center;gap:8px;padding:38px 18px;text-align:center}.admin-account-empty>strong{color:var(--forest);font:700 17px var(--serif)}.admin-account-empty>p{max-width:360px;margin:0 0 4px;color:#768075;font-size:11px;line-height:1.5}.admin-account-stats article>small{line-height:1.35}
+
+@media(max-width:1100px){.admin-account-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.admin-account-filters>label:first-child{grid-column:1/-1}.admin-account-filter-actions{grid-column:1/-1}.admin-account-filter-actions .button{flex:1}}
+@media(max-width:760px){.admin-account-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-account-filters>label:first-child,.admin-account-filter-actions{grid-column:1/-1}}
+@media(max-width:480px){.admin-account-filters{grid-template-columns:minmax(0,1fr)}.admin-account-filters>label:first-child,.admin-account-filter-actions{grid-column:auto}.admin-account-filter-actions{flex-direction:column}.admin-account-filter-actions .button{width:100%}.admin-account-stats{grid-template-columns:1fr}.admin-account-row{gap:12px}.admin-account-controls{width:100%}.admin-account-role{width:100%}.admin-account-role select{flex:1}}
