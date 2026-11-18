@@ -34,7 +34,7 @@ const displayDate = (value: string) => new Intl.DateTimeFormat('pt-AO', { dateSt
 const statusLabels = { ESTIMATED: 'Prevista', COMMITTED: 'Contratada', PAID: 'Paga' };
 
 export function BudgetPanel({
-  limit, confirmedContributions, expenses, tasks, title, setTitle, category, setCategory, amount, setAmount, status, setStatus, dueAt, setDueAt, taskId, setTaskId, editingId, onSubmit, onCancel, onEdit, onDelete, onOpenTask, onSetLimit, onAddPayment, onUpdatePayment, onDeletePayment,
+  limit, confirmedContributions, expenses, tasks, title, setTitle, category, setCategory, amount, setAmount, status, setStatus, dueAt, setDueAt, taskId, setTaskId, editingId, onSubmit, onCancel, onEdit, onDelete, onOpenTask, onSetLimit, onAddPayment, onUpdatePayment, onDeletePayment, onManageContributions,
 }: {
   limit: number | string | null;
   confirmedContributions: number;
@@ -52,6 +52,7 @@ export function BudgetPanel({
   onAddPayment: (expenseId: string, payment: { title: string; amount: number; dueAt: string | null }) => Promise<void>;
   onUpdatePayment: (expenseId: string, paymentId: string, update: { status: 'PENDING' | 'PAID' }) => Promise<void>;
   onDeletePayment: (expenseId: string, paymentId: string) => Promise<void>;
+  onManageContributions: () => void;
 }) {
   const paidAmount = (expense: BudgetExpense) => expense.status === 'PAID'
     ? Number(expense.amount)
@@ -121,7 +122,7 @@ export function BudgetPanel({
         <article><small>Pago</small><strong>{formatAOA(totals.paid)}</strong></article>
         <article className="budget-balance"><small>{balance !== null && balance < 0 ? 'Previsão acima do limite' : 'Saldo após despesas registadas'}</small><strong>{balance === null ? 'Define um limite' : formatAOA(balance)}</strong></article>
       </div>
-      <div className="budget-inflow-summary" aria-label="Contribuições e saldo líquido"><article><small>Contribuições confirmadas</small><strong>{formatAOA(confirmedContributions)}</strong></article><article><small>Saldo líquido após pagamentos</small><strong>{formatAOA(netBalance)}</strong></article><p>Saldo líquido = contribuições confirmadas menos despesas pagas registadas. Não inclui outras fontes de dinheiro.</p></div>
+      <div className="budget-inflow-summary" aria-label="Contribuições e saldo líquido"><article><small>Contribuições confirmadas</small><strong>{formatAOA(confirmedContributions)}</strong><button type="button" className="budget-contribution-link" onClick={onManageContributions}>Gerir contribuições →</button></article><article><small>Saldo líquido após pagamentos</small><strong>{formatAOA(netBalance)}</strong></article><p>Saldo líquido = contribuições confirmadas menos despesas pagas registadas. Não inclui outras fontes de dinheiro.</p></div>
       {limitValue !== null && <div className="budget-progress-block"><div><span>Total das despesas registadas</span><strong>{formatAOA(totalRegistered)} · {progress}% do limite</strong></div><div className="budget-progress" role="progressbar" aria-label="Despesas registadas face ao limite do orçamento" aria-valuemin={0} aria-valuemax={limitValue || 1} aria-valuenow={Math.min(totalRegistered, limitValue || 1)}><span style={{ width: `${progress}%` }}/></div></div>}
     </section>
 

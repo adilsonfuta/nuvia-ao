@@ -1,2 +1,10 @@
-export const metadata={title:'Espaços | Nuvia'};
-export default function SpacesPage(){return <main className="catalog-page"><a className="planner-back" href="/">← Início</a><header><p className="eyebrow">Salões, quintas e locais para eventos</p><h1>Espaços para o teu evento</h1><p>Encontra um local que combine com o teu estilo, número de participantes e orçamento.</p></header><form className="catalog-filters" action="/espacos"><input name="q" placeholder="Pesquisar por espaço ou município"/><select name="province"><option value="">Todas as províncias</option>{['Luanda','Benguela','Huíla','Huambo'].map(p=><option key={p}>{p}</option>)}</select><select name="capacity"><option value="">Qualquer capacidade</option><option value="100">Até 100 pessoas</option><option value="250">Até 250 pessoas</option><option value="500">Mais de 250 pessoas</option></select><button className="button button-primary">Pesquisar</button></form><section className="catalog-empty"><span>⌂</span><h2>O directório de espaços está a ser preparado.</h2><p>Vamos publicar espaços depois de confirmar os dados com os responsáveis. Ainda não temos disponibilidade ou preços verificados para apresentar.</p><a className="button button-outline" href="/planear">Organizar o meu plano →</a></section></main>}
+import VenueDirectory from "./venue-directory";
+
+export const metadata = {
+  title: "Espaços para eventos | Nuvia",
+  description: "Encontra quintas, salões e locais para o teu evento em Angola.",
+};
+
+export default function SpacesPage() {
+  return <main className="venue-page"><a className="catalog-back" href="/">← Início</a><header className="venue-page-heading"><p className="eyebrow">Espaços para celebrar</p><h1>Encontra o local certo para o teu evento.</h1><p>Pesquisa espaços publicados com localização, capacidade e contacto revistos pela equipa Nuvia. Confirma sempre a disponibilidade directamente com o espaço.</p></header><VenueDirectory /></main>;
+}

@@ -81,6 +81,13 @@ enum VendorStatus {
   SUSPENDED
 }
 
+enum VenueStatus {
+  DRAFT
+  PENDING
+  PUBLISHED
+  SUSPENDED
+}
+
 enum QuoteRequestStatus {
   NEW
   SENT
@@ -500,8 +507,43 @@ model Vendor {
   portfolio         VendorPortfolioItem[]
   profileSubmissions VendorProfileSubmission[]
   reviews           VendorReview[]
+  venues            Venue[]
 
   @@index([status, category, province])
+}
+
+model Venue {
+  id                String      @id @default(cuid())
+  slug              String      @unique
+  name              String
+  venueType         String
+  description       String?
+  province          String?
+  municipality      String?
+  address           String?
+  mapsUrl           String?
+  capacityMin       Int?
+  capacityMax       Int?
+  priceFrom         Decimal?    @db.Decimal(14, 2)
+  priceTo           Decimal?    @db.Decimal(14, 2)
+  amenities         String[]    @default([])
+  eventTypes        String[]    @default([])
+  galleryUrls       String[]    @default([])
+  phone             String?
+  email             String?
+  websiteUrl        String?
+  bookingTerms      String?
+  paymentTerms      String?
+  cancellationTerms String?
+  status            VenueStatus @default(DRAFT)
+  verifiedAt        DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  vendorId          String?
+  vendor            Vendor?     @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  @@index([status, province, venueType])
+  @@index([capacityMax])
 }
 
 model VendorClaim {

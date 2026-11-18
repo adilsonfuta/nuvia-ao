@@ -54,9 +54,20 @@ export function EventManager({
               className={`event-manager-card ${project.id === activeId ? "active" : ""} ${project.archivedAt ? "archived" : ""}`}
               key={project.id}
             >
-              <div className={`project-kind-badge ${project.kind}`}>
-                <span aria-hidden="true">{kinds[project.kind].icon}</span>
-                {kinds[project.kind].label}
+              <div className="event-manager-badges">
+                <div className={`project-kind-badge ${project.kind}`}>
+                  <span aria-hidden="true">{kinds[project.kind].icon}</span>
+                  {kinds[project.kind].label}
+                </div>
+                {project.currentRole === "OWNER" ? (
+                  <span className="event-access-badge owner">Responsável pelo evento</span>
+                ) : project.currentRole ? (
+                  <span className="event-access-badge shared">
+                    <span>Partilhado contigo</span>
+                    <i aria-hidden="true">·</i>
+                    {project.currentRole === "EDITOR" ? "Pode editar" : "Só consulta"}
+                  </span>
+                ) : null}
               </div>
               <h2>{project.title}</h2>
               {project.archivedAt && (

@@ -268,6 +268,28 @@ class RsvpDto {
 @Controller(["projects", "weddings"])
 export class ProjectsController {
   constructor(private readonly db: DatabaseService) {}
+  private async logActivity(
+    projectId: string,
+    actorId: string,
+    action: string,
+    resource: string,
+    resourceId: string,
+    metadata: Record<string, unknown> = {},
+  ) {
+    try {
+      await this.db.auditLog.create({
+        data: {
+          actorId,
+          action,
+          resource,
+          resourceId,
+          metadata: { projectId, ...metadata } as any,
+        },
+      });
+    } catch (error) {
+      console.error("Could not record event activity", { projectId, action, error });
+    }
+  }
   private async owned(projectId: string, userId: string, write = false) {
     const member = await this.db.projectMember.findUnique({
       where: { projectId_userId: { projectId, userId } },
@@ -384,7 +406,7 @@ export class ProjectsController {
           : body.eventType === "CUSTOM"
             ? "OTHER"
             : "WEDDING");
-    return this.db.eventProject.create({
+    const project = await this.db.eventProject.create({
       data: {
         title: body.title.trim(),
         kind,
@@ -417,6 +439,8 @@ export class ProjectsController {
       },
       include: { events: true, tasks: true },
     });
+    await this.logActivity(project.id, user.id, "PROJECT_CREATED", "EventProject", project.id, { subject: project.title });
+    return project;
   }
   @Get(":id") async detail(
     @Param("id") id: string,
@@ -508,7 +532,7 @@ export class ProjectsController {
     @Body() body: UpdateProjectDto,
   ) {
     await this.owned(id, user.id, true);
-    return this.db.eventProject.update({
+    const updated = await this.db.eventProject.update({
       where: { id },
       data: {
         title: body.title?.trim(),
@@ -524,6 +548,8 @@ export class ProjectsController {
         guestEstimate: body.guestEstimate,
       },
     });
+    await this.logActivity(id, user.id, "PROJECT_UPDATED", "EventProject", id, { changedFields: Object.keys(body) });
+    return updated;
   }
   @Patch(":id/archive") async setArchived(
     @Param("id") id: string,
@@ -535,11 +561,13 @@ export class ProjectsController {
       throw new ForbiddenException(
         "Só a pessoa responsável pelo evento pode arquivar ou restaurar o evento.",
       );
-    return this.db.eventProject.update({
+    const updated = await this.db.eventProject.update({
       where: { id },
       data: { archivedAt: body.archived ? new Date() : null },
       select: { id: true, archivedAt: true },
     });
+    await this.logActivity(id, user.id, body.archived ? "PROJECT_ARCHIVED" : "PROJECT_RESTORED", "EventProject", id);
+    return updated;
   }
   @Get(":id/events") async events(
     @Param("id") id: string,
@@ -557,13 +585,15 @@ export class ProjectsController {
     @Body() body: CreateEventDto,
   ) {
     await this.owned(id, user.id, true);
-    return this.db.eventMoment.create({
+    const created = await this.db.eventMoment.create({
       data: {
         ...body,
         projectId: id,
         startsAt: body.startsAt ? new Date(body.startsAt) : undefined,
       },
     });
+    await this.logActivity(id, user.id, "PROGRAM_MOMENT_CREATED", "EventMoment", created.id, { subject: created.title });
+    return created;
   }
   @Patch(":id/events/:eventId") async updateEvent(
     @Param("id") id: string,
@@ -585,7 +615,9 @@ export class ProjectsController {
       },
     });
     if (!result.count) throw new NotFoundException("Momento não encontrado.");
-    return this.db.eventMoment.findUnique({ where: { id: eventId } });
+    const updated = await this.db.eventMoment.findUnique({ where: { id: eventId } });
+    await this.logActivity(id, user.id, "PROGRAM_MOMENT_UPDATED", "EventMoment", eventId, { subject: updated?.title, changedFields: Object.keys(body) });
+    return updated;
   }
   @Delete(":id/events/:eventId") async deleteEvent(
     @Param("id") id: string,
@@ -593,10 +625,12 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.owned(id, user.id, true);
+    const moment = await this.db.eventMoment.findFirst({ where: { id: eventId, projectId: id }, select: { title: true } });
     const result = await this.db.eventMoment.deleteMany({
       where: { id: eventId, projectId: id },
     });
     if (!result.count) throw new NotFoundException("Momento não encontrado.");
+    await this.logActivity(id, user.id, "PROGRAM_MOMENT_DELETED", "EventMoment", eventId, { subject: moment?.title });
     return { ok: true };
   }
   @Get(":id/tasks") async tasks(
@@ -642,6 +676,7 @@ export class ProjectsController {
         assignedTo: { select: { id: true, name: true, email: true } },
       },
     });
+    await this.logActivity(id, user.id, "TASK_CREATED", "Task", created.id, { subject: created.title });
     if (created.assigneeUserId && created.assigneeUserId !== user.id) {
       await notifyUser(this.db, created.assigneeUserId, id, {
         type: NotificationType.TASK_ASSIGNED,
@@ -710,6 +745,7 @@ export class ProjectsController {
         href: `/dashboard?tab=planeamento&event=${encodeURIComponent(id)}`,
       });
     }
+    await this.logActivity(id, user.id, "TASK_UPDATED", "Task", taskId, { subject: updated?.title, changedFields: Object.keys(body) });
     if (
       updated &&
       (updated.status === "DONE" ||
@@ -726,10 +762,12 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.owned(id, user.id, true);
+    const task = await this.db.task.findFirst({ where: { id: taskId, projectId: id }, select: { title: true } });
     const result = await this.db.task.deleteMany({
       where: { id: taskId, projectId: id },
     });
     if (!result.count) throw new NotFoundException("Tarefa não encontrada.");
+    await this.logActivity(id, user.id, "TASK_DELETED", "Task", taskId, { subject: task?.title });
     await dismissSourceNotifications(this.db, id, NotificationType.TASK_DUE, taskId);
     return { ok: true };
   }
@@ -763,6 +801,7 @@ export class ProjectsController {
     const guest = await this.db.guest.create({
       data: { ...body, maxPartySize: partySize, projectId: id, rsvpTokenHash: credentials.rsvpTokenHash, rsvpTokenCiphertext: credentials.rsvpTokenCiphertext },
     });
+    await this.logActivity(id, user.id, "GUEST_ADDED", "Guest", guest.id);
     return exposeGuestRsvpToken(this.db, guest);
   }
   @Post(":id/guests/import") async importGuests(
@@ -832,7 +871,10 @@ export class ProjectsController {
         ...((({ token: _token, ...stored }) => stored)(createRsvpTokenCredentials())),
       });
     }
-    if (records.length) await this.db.guest.createMany({ data: records });
+    if (records.length) {
+      await this.db.guest.createMany({ data: records });
+      await this.logActivity(id, user.id, "GUESTS_IMPORTED", "Guest", id, { count: records.length });
+    }
     return { createdCount: records.length, skippedCount };
   }
   @Patch(":id/guests/:guestId") async updateGuest(
@@ -876,6 +918,7 @@ export class ProjectsController {
       data: body,
       include: { rsvps: true, seatingTable: true },
     });
+    await this.logActivity(id, user.id, "GUEST_UPDATED", "Guest", guestId);
     return exposeGuestRsvpToken(this.db, updated);
   }
   @Get(":id/tables") async tables(
@@ -919,7 +962,9 @@ export class ProjectsController {
     @Body() body: CreateSeatingTableDto,
   ) {
     await this.owned(id, user.id, true);
-    return this.db.seatingTable.create({ data: { ...body, projectId: id } });
+    const table = await this.db.seatingTable.create({ data: { ...body, projectId: id } });
+    await this.logActivity(id, user.id, "GUEST_TABLE_CREATED", "SeatingTable", table.id, { subject: table.name });
+    return table;
   }
   @Delete(":id/tables/:tableId") async deleteTable(
     @Param("id") id: string,
@@ -927,10 +972,12 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.owned(id, user.id, true);
+    const table = await this.db.seatingTable.findFirst({ where: { id: tableId, projectId: id }, select: { name: true } });
     const result = await this.db.seatingTable.deleteMany({
       where: { id: tableId, projectId: id },
     });
     if (!result.count) throw new NotFoundException("Mesa não encontrada.");
+    await this.logActivity(id, user.id, "GUEST_TABLE_DELETED", "SeatingTable", tableId, { subject: table?.name });
     return { ok: true };
   }
   @Delete(":id/guests/:guestId") async deleteGuest(
@@ -939,10 +986,12 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.owned(id, user.id, true);
+    const guest = await this.db.guest.findFirst({ where: { id: guestId, projectId: id }, select: { id: true } });
     const result = await this.db.guest.deleteMany({
       where: { id: guestId, projectId: id },
     });
     if (!result.count) throw new NotFoundException("Convidado não encontrado.");
+    await this.logActivity(id, user.id, "GUEST_DELETED", "Guest", guest?.id ?? guestId);
     return { ok: true };
   }
   @Get(":id/budget/expenses") async expenses(
@@ -979,7 +1028,7 @@ export class ProjectsController {
       throw new BadRequestException(
         "A tarefa ligada não pertence a este evento.",
       );
-    return this.db.expense.create({
+    const expense = await this.db.expense.create({
       data: {
         ...body,
         amount: body.amount,
@@ -993,6 +1042,8 @@ export class ProjectsController {
         },
       },
     });
+    await this.logActivity(id, user.id, "EXPENSE_CREATED", "Expense", expense.id, { subject: expense.title });
+    return expense;
   }
   @Patch(":id/budget/expenses/:expenseId") async updateExpense(
     @Param("id") id: string,
@@ -1054,6 +1105,7 @@ export class ProjectsController {
     ) {
       await dismissSourceNotifications(this.db, id, NotificationType.EXPENSE_DUE, expenseId);
     }
+    await this.logActivity(id, user.id, "EXPENSE_UPDATED", "Expense", expenseId, { subject: updated?.title, changedFields: Object.keys(body) });
     return updated;
   }
   @Post(":id/budget/expenses/:expenseId/payments") async addExpensePayment(
@@ -1063,7 +1115,7 @@ export class ProjectsController {
     @Body() body: CreateExpensePaymentDto,
   ) {
     await this.owned(id, user.id, true);
-    return this.db.$transaction(async (tx) => {
+    const payment = await this.db.$transaction(async (tx) => {
       const expense = await tx.expense.findFirst({ where: { id: expenseId, projectId: id }, select: { id: true, amount: true, status: true } });
       if (!expense) throw new NotFoundException("Despesa não encontrada.");
       const totals = await tx.expensePayment.aggregate({ where: { expenseId }, _sum: { amount: true } });
@@ -1079,6 +1131,8 @@ export class ProjectsController {
         await tx.expense.update({ where: { id: expenseId }, data: { status: ExpenseStatus.COMMITTED } });
       return payment;
     });
+    await this.logActivity(id, user.id, "EXPENSE_PAYMENT_CREATED", "ExpensePayment", payment.id, { subject: body.title.trim() });
+    return payment;
   }
   @Patch(":id/budget/expenses/:expenseId/payments/:paymentId") async updateExpensePayment(
     @Param("id") id: string,
@@ -1088,7 +1142,7 @@ export class ProjectsController {
     @Body() body: UpdateExpensePaymentDto,
   ) {
     await this.owned(id, user.id, true);
-    return this.db.$transaction(async (tx) => {
+    const payment = await this.db.$transaction(async (tx) => {
       const expense = await tx.expense.findFirst({ where: { id: expenseId, projectId: id }, select: { id: true, amount: true, status: true } });
       if (!expense) throw new NotFoundException("Despesa não encontrada.");
       const payment = await tx.expensePayment.findFirst({ where: { id: paymentId, expenseId } });
@@ -1119,6 +1173,8 @@ export class ProjectsController {
       if (nextExpenseStatus) await tx.expense.update({ where: { id: expenseId }, data: { status: nextExpenseStatus } });
       return updated;
     });
+    await this.logActivity(id, user.id, "EXPENSE_PAYMENT_UPDATED", "ExpensePayment", payment.id, { subject: payment.title, changedFields: Object.keys(body) });
+    return payment;
   }
   @Delete(":id/budget/expenses/:expenseId/payments/:paymentId") async deleteExpensePayment(
     @Param("id") id: string,
@@ -1127,8 +1183,10 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.owned(id, user.id, true);
+    const payment = await this.db.expensePayment.findFirst({ where: { id: paymentId, expenseId, expense: { projectId: id } }, select: { title: true } });
     const result = await this.db.expensePayment.deleteMany({ where: { id: paymentId, expenseId, expense: { projectId: id }, status: ExpensePaymentStatus.PENDING } });
     if (!result.count) throw new NotFoundException("Prestação pendente não encontrada.");
+    await this.logActivity(id, user.id, "EXPENSE_PAYMENT_DELETED", "ExpensePayment", paymentId, { subject: payment?.title });
     return { ok: true };
   }
   @Delete(":id/budget/expenses/:expenseId") async deleteExpense(
@@ -1139,7 +1197,7 @@ export class ProjectsController {
     await this.owned(id, user.id, true);
     const expense = await this.db.expense.findFirst({
       where: { id: expenseId, projectId: id },
-      select: { id: true, quoteRequestId: true },
+      select: { id: true, title: true, quoteRequestId: true },
     });
     if (!expense) throw new NotFoundException("Despesa não encontrada.");
     await this.db.$transaction(async (tx) => {
@@ -1151,6 +1209,7 @@ export class ProjectsController {
         });
     });
     await dismissSourceNotifications(this.db, id, NotificationType.EXPENSE_DUE, expense.id);
+    await this.logActivity(id, user.id, "EXPENSE_DELETED", "Expense", expense.id, { subject: expense.title });
     return { ok: true };
   }
   @Get(":id/share-summary") async getSummaryShare(
@@ -1184,6 +1243,7 @@ export class ProjectsController {
       create: { projectId: id, publicToken: randomBytes(24).toString("base64url"), ...data },
       update: data,
     });
+    await this.logActivity(id, user.id, "SUMMARY_SHARE_UPDATED", "EventSummaryShare", share.id);
     return { ...share, sharePath: `/resumo-evento/${share.publicToken}` };
   }
   @Post(":id/share-summary/rotate-link") async rotateSummaryLink(
@@ -1196,6 +1256,7 @@ export class ProjectsController {
     const share = await this.db.eventSummaryShare.update({
       where: { projectId: id }, data: { publicToken: randomBytes(24).toString("base64url") },
     });
+    await this.logActivity(id, user.id, "SUMMARY_SHARE_LINK_ROTATED", "EventSummaryShare", share.id);
     return { sharePath: `/resumo-evento/${share.publicToken}` };
   }
   @Post(":id/invitations") async publishInvitation(
@@ -1207,8 +1268,8 @@ export class ProjectsController {
     const current = await this.db.invitation.findFirst({
       where: { projectId: id },
     });
-    if (current)
-      return this.db.invitation.update({
+    if (current) {
+      const updated = await this.db.invitation.update({
         where: { id: current.id },
         data: {
           headline: body.headline,
@@ -1221,7 +1282,10 @@ export class ProjectsController {
           isPublic: true,
         },
       });
-    return this.db.invitation.create({
+      await this.logActivity(id, user.id, "INVITATION_PUBLISHED", "Invitation", updated.id);
+      return updated;
+    }
+    const invitation = await this.db.invitation.create({
       data: {
         projectId: id,
         slug: `${id.slice(-6)}-${randomBytes(6).toString("hex")}`,
@@ -1235,6 +1299,8 @@ export class ProjectsController {
         isPublic: true,
       },
     });
+    await this.logActivity(id, user.id, "INVITATION_PUBLISHED", "Invitation", invitation.id);
+    return invitation;
   }
   @Get(":id/quote-requests") async quotes(
     @Param("id") id: string,
@@ -1308,7 +1374,7 @@ export class ProjectsController {
       where: { id: requestId, projectId: id },
     });
     if (!request) throw new NotFoundException("Pedido não encontrado.");
-    return this.db.quoteRequest.update({
+    const updated = await this.db.quoteRequest.update({
       where: { id: requestId },
       data: {
         status: body.status,
@@ -1321,6 +1387,8 @@ export class ProjectsController {
       },
       include: { vendor: true, expense: true },
     });
+    await this.logActivity(id, user.id, "QUOTE_REQUEST_UPDATED", "QuoteRequest", requestId, { subject: updated.vendor.name });
+    return updated;
   }
   @Post(":id/quote-requests/:requestId/hire") async hireVendor(
     @Param("id") id: string,
@@ -1336,7 +1404,7 @@ export class ProjectsController {
     if (!request) throw new NotFoundException("Pedido não encontrado.");
     if (request.expense) return request;
     const category = vendorBudgetCategory[request.vendor.category] ?? "Outros";
-    return this.db.$transaction(async (tx) => {
+    const hired = await this.db.$transaction(async (tx) => {
       const expense = await tx.expense.create({
         data: {
           projectId: id,
@@ -1359,6 +1427,8 @@ export class ProjectsController {
       });
       return { ...updated, expense };
     });
+    await this.logActivity(id, user.id, "QUOTE_REQUEST_HIRED", "QuoteRequest", requestId, { subject: request.vendor.name });
+    return hired;
   }
   @Post(":id/members") async addMember(
     @Param("id") id: string,
@@ -1407,6 +1477,14 @@ export class ProjectsController {
         body: `${user.name || user.email} ${existing ? "actualizou o teu acesso a" : "partilhou contigo"} ${project?.title || "um evento"}.`,
         href: `/dashboard?tab=eventos&event=${encodeURIComponent(id)}`,
       });
+      await this.logActivity(
+        id,
+        user.id,
+        existing ? "PROJECT_MEMBER_ROLE_UPDATED" : "PROJECT_MEMBER_ADDED",
+        "ProjectMember",
+        invited.id,
+        { subject: invited.name || invited.email, role: body.role },
+      );
     }
     return membership;
   }
@@ -1420,10 +1498,15 @@ export class ProjectsController {
       throw new ForbiddenException(
         "Só os responsáveis pelo evento podem gerir os acessos de outras pessoas.",
       );
+    const target = await this.db.projectMember.findUnique({
+      where: { projectId_userId: { projectId: id, userId } },
+      include: { user: { select: { name: true, email: true } } },
+    });
     const removed = await this.db.projectMember.deleteMany({
       where: { projectId: id, userId, role: { not: "OWNER" } },
     });
     if (!removed.count) throw new NotFoundException("Acesso não encontrado.");
+    await this.logActivity(id, user.id, "PROJECT_MEMBER_REMOVED", "ProjectMember", userId, { subject: target?.user.name || target?.user.email });
     return { ok: true };
   }
   private async assertTableCapacity(
@@ -1630,7 +1713,7 @@ export class PublicEventSummaryController {
           select: {
             title: true, kind: true, date: true, province: true,
             tasks: { select: { id: true, title: true, status: true }, orderBy: { createdAt: "desc" } },
-            guests: { select: { rsvps: { where: { eventKey: "all" }, select: { status: true, partySize: true } } } },
+            guests: { select: { maxPartySize: true, rsvps: { where: { eventKey: "all" }, select: { status: true, partySize: true } } } },
             expenses: { select: { amount: true, status: true, payments: { select: { amount: true, status: true } } } },
             quoteRequests: { select: { status: true, vendor: { select: { name: true, category: true } } }, orderBy: { createdAt: "desc" } },
             events: { where: { showToGuests: true }, select: { id: true, title: true, type: true, startsAt: true, venue: true, address: true, mapsUrl: true }, orderBy: { startsAt: "asc" } },
@@ -1645,11 +1728,13 @@ export class PublicEventSummaryController {
     const completedPaid = project.expenses.reduce((total, expense) => total + (expense.status === "PAID" ? Number(expense.amount) : expense.payments.filter(payment => payment.status === "PAID").reduce((sum, payment) => sum + Number(payment.amount), 0)), 0);
     const guestSummary = project.guests.reduce((summary, guest) => {
       const rsvp = guest.rsvps[0];
-      if (!rsvp) summary.pending += 1;
-      else if (rsvp.status === "ACCEPTED") summary.confirmed += rsvp.partySize;
-      else if (rsvp.status === "DECLINED") summary.declined += 1;
+      if (!rsvp || (rsvp.status !== "ACCEPTED" && rsvp.status !== "DECLINED")) {
+        summary.pendingInvitations += 1;
+        summary.pendingPeople += guest.maxPartySize;
+      } else if (rsvp.status === "ACCEPTED") summary.confirmedPeople += rsvp.partySize;
+      else summary.declinedInvitations += 1;
       return summary;
-    }, { confirmed: 0, pending: 0, declined: 0 });
+    }, { confirmedPeople: 0, pendingPeople: 0, pendingInvitations: 0, declinedInvitations: 0 });
     const contributionTotal = share.showFinancial && project.contributionCampaign
       ? await this.db.eventContribution.aggregate({ where: { campaignId: project.contributionCampaign.id, status: "CONFIRMED" }, _sum: { amount: true } })
       : null;

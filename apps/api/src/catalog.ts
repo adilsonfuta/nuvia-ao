@@ -443,15 +443,38 @@ export class LegalController {
 @ApiTags("Espaços")
 @Controller("venues")
 export class VenuesController {
-  @Get() list() {
-    return {
-      items: [],
-      total: 0,
-      status: "CATALOGO_EM_PREPARACAO",
-      message: "Ainda não há espaços publicados com informação verificada.",
+  constructor(private readonly db: DatabaseService) {}
+  @Get() async list(
+    @Query("search") search?: string,
+    @Query("province") province?: string,
+    @Query("type") venueType?: string,
+    @Query("capacity") capacityRaw?: string,
+  ) {
+    const rawCapacity = capacityRaw && /^\d+$/.test(capacityRaw) ? Number(capacityRaw) : undefined;
+    const capacity = rawCapacity && Number.isSafeInteger(rawCapacity) && rawCapacity <= 100000 ? rawCapacity : undefined;
+    const where = {
+      status: "PUBLISHED" as const,
+      ...(province ? { province } : {}),
+      ...(venueType ? { venueType } : {}),
+      ...(capacity && capacity > 0 ? { capacityMax: { gte: capacity } } : {}),
+      ...(search?.trim() ? { OR: [
+        { name: { contains: search.trim().slice(0, 100), mode: "insensitive" as const } },
+        { description: { contains: search.trim().slice(0, 100), mode: "insensitive" as const } },
+        { municipality: { contains: search.trim().slice(0, 100), mode: "insensitive" as const } },
+      ] } : {}),
     };
+    const [items, total] = await Promise.all([
+      this.db.venue.findMany({ where, select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, amenities: true, eventTypes: true, verifiedAt: true }, orderBy: [{ verifiedAt: "desc" }, { name: "asc" }], take: 60 }),
+      this.db.venue.count({ where }),
+    ]);
+    return { items, total, status: items.length ? "PUBLICADO" : "SEM_RESULTADOS" };
   }
-  @Get(":slug") detail() {
-    throw new NotFoundException("Espaço não encontrado.");
+  @Get(":slug") async detail(@Param("slug") slug: string) {
+    const venue = await this.db.venue.findFirst({
+      where: { slug, status: "PUBLISHED" },
+      select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, amenities: true, eventTypes: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, bookingTerms: true, paymentTerms: true, cancellationTerms: true, verifiedAt: true },
+    });
+    if (!venue) throw new NotFoundException("Espaço não encontrado.");
+    return venue;
   }
 }

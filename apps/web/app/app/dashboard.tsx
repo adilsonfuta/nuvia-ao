@@ -25,6 +25,7 @@ import { EventManager } from "./event-manager";
 import { GuestsWorkspace } from "./guests-workspace";
 import { ReportsPanel } from "./reports-panel";
 import { NotificationCenter } from "./notification-center";
+import { ActivityLogPanel } from "./activity-log-panel";
 import type { ProjectKind, ProjectSummary } from "@casar/contracts";
 
 type User = { id: string; email: string; name: string | null; role?: "USER" | "MODERATOR" | "ADMIN" };
@@ -313,6 +314,7 @@ export default function Dashboard() {
   const [archivingProject, setArchivingProject] = useState(false);
   const [data, setData] = useState<Detail | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
+  const [teamSection, setTeamSection] = useState<"access" | "history">("access");
   const [openNavGroup, setOpenNavGroup] = useState<string | null | undefined>(undefined);
   const [navigationReady, setNavigationReady] = useState(false);
   const [settingsView, setSettingsView] = useState<"event" | "account">(
@@ -454,6 +456,7 @@ export default function Dashboard() {
       try {
         const initialUrl = new URL(window.location.href);
         const requestedTab = tabFromUrl(initialUrl.searchParams.get("tab"));
+        setTeamSection(initialUrl.searchParams.get("section") === "historico" ? "history" : "access");
         const requestedProjectId =
           initialUrl.searchParams.get("event") ||
           initialUrl.searchParams.get("projectId") ||
@@ -494,6 +497,8 @@ export default function Dashboard() {
     if (!navigationReady) return;
     const url = new URL(window.location.href);
     url.searchParams.set("tab", DASHBOARD_TAB_URL[tab]);
+    if (tab === "team" && teamSection === "history") url.searchParams.set("section", "historico");
+    else url.searchParams.delete("section");
     url.searchParams.delete("projectId");
     if (selected) url.searchParams.set("event", selected);
     else url.searchParams.delete("event");
@@ -507,12 +512,13 @@ export default function Dashboard() {
     if (target === current) return;
     if (skipUrlSync.current) return;
     window.history.pushState(null, "", target);
-  }, [navigationReady, selected, tab]);
+  }, [navigationReady, selected, tab, teamSection]);
 
   useEffect(() => {
     function restoreDashboardLocation() {
       const url = new URL(window.location.href);
       const nextTab = tabFromUrl(url.searchParams.get("tab"));
+      setTeamSection(url.searchParams.get("section") === "historico" ? "history" : "access");
       const nextProjectId =
         url.searchParams.get("event") || url.searchParams.get("projectId") || "";
       skipUrlSync.current = true;
@@ -1199,6 +1205,14 @@ export default function Dashboard() {
             action: "Definir orçamento",
             tab: "settings" as Tab,
           };
+        if (data.members.length < 2)
+          return {
+            title: "Convida alguém para organizar contigo",
+            description:
+              "Partilha o planeamento com familiares ou organizadores e escolhe se podem editar ou apenas consultar.",
+            action: "Gerir acessos",
+            tab: "team" as Tab,
+          };
         if (data.guests.length === 0)
           return {
             title: "Começa a lista de participantes",
@@ -1260,6 +1274,12 @@ export default function Dashboard() {
           (rsvp) => rsvp.status === "ACCEPTED" || rsvp.status === "DECLINED",
         ),
     ).length ?? 0;
+  const expectedGuests = data?.guests.reduce((total, guest) => {
+    const rsvp = guest.rsvps[0];
+    if (rsvp?.status === "ACCEPTED") return total + rsvp.partySize;
+    if (rsvp?.status !== "DECLINED") return total + guest.maxPartySize;
+    return total;
+  }, 0) ?? 0;
   const todayInLuanda = luandaTodayDateInput();
   const currentMemberRole = data?.members.find(
     (member) => member.user.id === user?.id,
@@ -1330,7 +1350,6 @@ export default function Dashboard() {
         <a className="brand dashboard-brand" href="/dashboard" aria-label="Nuvia — voltar à dashboard">
           <Image className="nuvia-dashboard-logo" src="/brand/nuvia-logo.png" alt="Nuvia" width={240} height={75} priority />
         </a>
-        <NotificationCenter onOpen={openNotification} />
         <nav aria-label="Navegação do projecto">
           {DASHBOARD_PRIMARY_TABS.filter(
             (item) => item.key !== "events" || projects.length > 0,
@@ -1387,9 +1406,6 @@ export default function Dashboard() {
         <a className="sidebar-vendor-link" href="/fornecedor/gestao">
           Sou fornecedor · Gerir perfil <span aria-hidden="true">↗</span>
         </a>
-        <a className="sidebar-public-link" href="/" target="_blank" rel="noreferrer">
-          Ver site público <span aria-hidden="true">↗</span>
-        </a>
         <div className="sidebar-user">
           <span className="user-avatar" aria-hidden="true">
             {(user.name || user.email).slice(0, 1).toUpperCase()}
@@ -1401,6 +1417,9 @@ export default function Dashboard() {
         </div>
       </aside>
       <section className="dashboard-main">
+        <div className="dashboard-toolbar">
+          <NotificationCenter onOpen={openNotification} />
+        </div>
         {error && (
           <div className="dashboard-error" role="alert">
             {error}
@@ -1623,17 +1642,17 @@ export default function Dashboard() {
                       </article>
                       <article className="metric-card metric-guests">
                         <div className="metric-card-label">
-                          <small>Convidados</small>
+                          <small>Pessoas previstas</small>
                         </div>
                         <strong>
-                          {data.metrics.guests}
+                          {expectedGuests}
                           {data.guestEstimate
                             ? ` / ~${data.guestEstimate}`
                             : ""}
                         </strong>
                         <span>
-                          {confirmedGuests} confirmados · {guestsWithoutReply}{" "}
-                          sem resposta
+                          {confirmedGuests} confirmadas · {guestsWithoutReply}{" "}
+                          convites sem resposta
                         </span>
                       </article>
                       <article className="metric-card metric-tasks">
@@ -1743,9 +1762,22 @@ export default function Dashboard() {
                         )}
                       </section>
                     </div>
+                    <ActivityLogPanel projectId={selected} compact onViewAll={() => { setTeamSection("history"); setTab("team"); }} />
                   </>
                 )}
                 {tab === "team" && (
+                  <>
+                  <nav className="team-section-tabs" aria-label="Secções de colaboração">
+                    <button type="button" aria-pressed={teamSection === "access"} onClick={() => setTeamSection("access")}>
+                      <span>Acessos</span>
+                      <small>Equipa e permissões</small>
+                    </button>
+                    <button type="button" aria-pressed={teamSection === "history"} onClick={() => setTeamSection("history")}>
+                      <span>Histórico</span>
+                      <small>Alterações do evento</small>
+                    </button>
+                  </nav>
+                  {teamSection === "access" && (
                   <section className="dash-panel wide-panel team-panel">
                     <div className="panel-title">
                       <div>
@@ -1916,6 +1948,9 @@ export default function Dashboard() {
                       </div>
                     )}
                   </section>
+                  )}
+                  {teamSection === "history" && <ActivityLogPanel projectId={selected} />}
+                  </>
                 )}
                 {tab === "planning" && (
                   <section className="dash-panel wide-panel task-planning-panel">
@@ -2145,6 +2180,7 @@ export default function Dashboard() {
                     onAddPayment={addExpensePayment}
                     onUpdatePayment={updateExpensePayment}
                     onDeletePayment={deleteExpensePayment}
+                    onManageContributions={() => setTab("contributions")}
                   />
                 )}
                 {tab === "share" && (

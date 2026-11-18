@@ -9,9 +9,6 @@ export const metadata = {
 export default function Page() {
   return (
     <main className="catalog-page">
-      <a className="catalog-back" href="/">
-        <span aria-hidden="true">←</span> Início
-      </a>
       <header className="catalog-heading">
         <p className="eyebrow">Profissionais para a tua celebração</p>
         <h1>Encontra fornecedores para o teu evento.</h1>

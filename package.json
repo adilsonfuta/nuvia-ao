@@ -1,7 +1,10 @@
 {
   "name": "casar-em-angola",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "packageManager": "npm@11.19.0",
   "scripts": {
     "dev": "turbo dev",
@@ -11,5 +14,12 @@
     "test": "turbo test",
     "format": "prettier --write ."
   },
-  "devDependencies": { "prettier": "^3.4.2", "turbo": "^2.3.3", "typescript": "^5.7.2" }
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "postcss": "^8.5.23"
+  }
 }
