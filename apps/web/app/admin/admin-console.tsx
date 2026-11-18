@@ -43,6 +43,7 @@ type Guide = {
   slug: string;
   status: string;
   summary: string;
+  category: string;
 };
 type Source = {
   id: string;
@@ -179,6 +180,7 @@ export default function AdminConsole() {
   const [guideTitle, setGuideTitle] = useState("");
   const [guideSlug, setGuideSlug] = useState("");
   const [guideSummary, setGuideSummary] = useState("");
+  const [guideCategory, setGuideCategory] = useState("Planeamento");
   const [guideBody, setGuideBody] = useState("");
   const [sourceTitle, setSourceTitle] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -416,13 +418,14 @@ export default function AdminConsole() {
           slug: guideSlug,
           summary: guideSummary,
           body: guideBody,
-          category: "Planeamento",
+          category: guideCategory,
           status: "DRAFT",
         }),
       });
       setGuideTitle("");
       setGuideSlug("");
       setGuideSummary("");
+      setGuideCategory("Planeamento");
       setGuideBody("");
     });
   }
@@ -945,7 +948,7 @@ export default function AdminConsole() {
                   <article className="admin-row" key={g.id}>
                     <span>
                       <strong>{g.title}</strong>
-                      <small>{g.status}</small>
+                    <small>{g.category} · {g.status}</small>
                     </span>
                     <button onClick={() => void publishGuide(g)}>
                       {g.status === "PUBLISHED" ? "Retirar" : "Publicar"}
@@ -977,6 +980,14 @@ export default function AdminConsole() {
                     required
                     value={guideSummary}
                     onChange={(e) => setGuideSummary(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Categoria
+                  <input
+                    required
+                    value={guideCategory}
+                    onChange={(e) => setGuideCategory(e.target.value)}
                   />
                 </label>
                 <label>
