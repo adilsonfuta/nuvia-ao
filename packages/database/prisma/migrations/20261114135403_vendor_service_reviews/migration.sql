@@ -2,7 +2,7 @@
 CREATE TYPE "VendorReviewStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 
 -- DropIndex
-DROP INDEX "Vendor_ownerUserId_idx";
+DROP INDEX IF EXISTS "Vendor_ownerUserId_idx";
 
 -- CreateTable
 CREATE TABLE "VendorReview" (
