@@ -44,12 +44,15 @@ services:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with host database and port 5432}
       WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN to the public https URL}
       RSVP_TOKEN_ENCRYPTION_KEY: ${RSVP_TOKEN_ENCRYPTION_KEY:?Set a base64 32-byte key}
+      PROJECT_DOCUMENT_ENCRYPTION_KEY: ${PROJECT_DOCUMENT_ENCRYPTION_KEY:?Set a dedicated base64 32-byte key for private event documents}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       PORTFOLIO_STORAGE_DIR: /app/data/vendor-portfolio
       PRIVATE_UPLOAD_STORAGE_DIR: /app/data/private-contribution-proofs
+      PROJECT_DOCUMENT_STORAGE_DIR: /app/data/private-project-documents
     volumes:
       - nuvia_vendor_portfolio:/app/data/vendor-portfolio
       - nuvia_contribution_proofs:/app/data/private-contribution-proofs
+      - nuvia_project_documents:/app/data/private-project-documents
     expose:
       - "4000"
     depends_on:
@@ -94,3 +97,4 @@ volumes:
   nuvia_postgres_data:
   nuvia_vendor_portfolio:
   nuvia_contribution_proofs:
+  nuvia_project_documents:

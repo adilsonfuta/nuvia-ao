@@ -15,7 +15,7 @@ COPY packages/database/package.json ./packages/database/package.json
 RUN npm ci --omit=dev --workspace=@casar/api
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/packages/database/generated/client ./packages/database/generated/client
-RUN mkdir -p /app/data/vendor-portfolio /app/data/private-contribution-proofs \
+RUN mkdir -p /app/data/vendor-portfolio /app/data/private-contribution-proofs /app/data/private-project-documents \
     && chown -R node:node /app/data
 USER node
 EXPOSE 4000

@@ -33,6 +33,7 @@ export function createPersistentRateLimit(
     const uploadRequest = request.method === "POST" && /^\/api\/v1\/vendor-portal\/[^/]+\/portfolio(?:\?|$)/.test(path);
     const contributionRequest = request.method === "POST" && /^\/api\/v1\/contributions\/[A-Za-z0-9_-]+(?:\?|$)/.test(path);
     const contributionLookup = request.method === "GET" && /^\/api\/v1\/contributions\/[A-Za-z0-9_-]+(?:\?|$)/.test(path);
+    const projectDocumentUpload = request.method === "POST" && /^\/api\/v1\/projects\/[^/]+\/documents\/[^/]+\/file(?:\?|$)/.test(path);
     const limited =
       path.startsWith("/api/v1/auth/login") ||
       path.startsWith("/api/v1/auth/register") ||
@@ -40,6 +41,7 @@ export function createPersistentRateLimit(
       path.startsWith("/api/v1/auth/password-reset/reset") ||
       path.startsWith("/api/v1/vendor-applications") ||
       uploadRequest ||
+      projectDocumentUpload ||
       contributionRequest ||
       contributionLookup ||
       /^\/api\/v1\/invitations\/[^/]+\/rsvp/.test(path);
@@ -50,8 +52,8 @@ export function createPersistentRateLimit(
         .replace(/\/vendor-portal\/[^/]+\/portfolio$/, "/vendor-portal/:vendorId/portfolio")
         .replace(/\/contributions\/[A-Za-z0-9_-]+$/, "/contributions/:token")
         .replace(/\/[^/]+\/rsvp$/, "/:slug/rsvp");
-      const routeMax = uploadRequest || contributionRequest ? Math.min(max, 8) : contributionLookup ? Math.max(max, 60) : max;
-      const routeWindowMs = uploadRequest || contributionRequest ? Math.max(windowMs, 10 * 60_000) : windowMs;
+      const routeMax = uploadRequest || contributionRequest || projectDocumentUpload ? Math.min(max, 8) : contributionLookup ? Math.max(max, 60) : max;
+      const routeWindowMs = uploadRequest || contributionRequest || projectDocumentUpload ? Math.max(windowMs, 10 * 60_000) : windowMs;
       const address = String(
         request.ip ?? request.socket?.remoteAddress ?? "unknown",
       );

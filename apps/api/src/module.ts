@@ -12,6 +12,7 @@ import { VendorApplicationsController } from './vendor-applications';
 import { PublicVendorPortfolioController, VendorPortalController } from './vendor-portal';
 import { ProjectContributionsController, PublicContributionsController } from './contributions';
 import { ProjectActivityController } from './project-activity';
+import { ProjectDocumentsController } from './project-documents';
 
 @Controller('health')
 class HealthController {
@@ -20,7 +21,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, AuthController, AdminController, ProjectsController, ProjectActivityController, PublicInvitationController, PublicEventSummaryController, NotificationsController, VendorsController, CatalogConfigController, VendorFavoritesController, QuoteRequestsController, GuidesController, LegalController, VenuesController, VendorApplicationsController, VendorPortalController, PublicVendorPortfolioController, ProjectContributionsController, PublicContributionsController],
+  controllers: [HealthController, AuthController, AdminController, ProjectsController, ProjectActivityController, ProjectDocumentsController, PublicInvitationController, PublicEventSummaryController, NotificationsController, VendorsController, CatalogConfigController, VendorFavoritesController, QuoteRequestsController, GuidesController, LegalController, VenuesController, VendorApplicationsController, VendorPortalController, PublicVendorPortfolioController, ProjectContributionsController, PublicContributionsController],
   providers: [DatabaseService, SessionGuard, AdminGuard],
 })
 export class AppModule {}

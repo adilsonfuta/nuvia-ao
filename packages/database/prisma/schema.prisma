@@ -50,6 +50,13 @@ enum TaskPriority {
   HIGH
 }
 
+enum ProjectDocumentStatus {
+  TODO
+  IN_PROGRESS
+  READY
+  NOT_REQUIRED
+}
+
 enum ExpenseStatus {
   ESTIMATED
   COMMITTED
@@ -165,6 +172,7 @@ model User {
   vendorProfileSubmissions VendorProfileSubmission[] @relation("VendorProfileSubmitter")
   reviewedVendorProfileSubmissions VendorProfileSubmission[] @relation("VendorProfileReviewer")
   uploadedPortfolioItems VendorPortfolioItem[]   @relation("PortfolioUploader")
+  uploadedProjectDocuments ProjectDocument[]    @relation("ProjectDocumentUploader")
   reviewedPortfolioItems VendorPortfolioItem[]   @relation("PortfolioReviewer")
   authoredVendorReviews VendorReview[]            @relation("VendorReviewAuthor")
   moderatedVendorReviews VendorReview[]           @relation("VendorReviewModerator")
@@ -221,6 +229,7 @@ model EventProject {
   members       ProjectMember[]
   events        EventMoment[]
   tasks         Task[]
+  documents     ProjectDocument[]
   guests        Guest[]
   expenses      Expense[]
   invitations   Invitation[]
@@ -302,6 +311,29 @@ model Task {
 
   @@index([projectId, status, dueAt])
   @@index([assigneeUserId])
+}
+
+model ProjectDocument {
+  id             String                @id @default(cuid())
+  projectId      String
+  title          String
+  category       String                @default("Documentação")
+  status         ProjectDocumentStatus @default(TODO)
+  notes          String?
+  dueAt          DateTime?
+  assigneeName   String?
+  storageKey     String?               @unique
+  mimeType       String?
+  byteSize       Int?
+  fileUploadedAt DateTime?
+  uploadedById   String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  project        EventProject          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy     User?                 @relation("ProjectDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status, updatedAt])
+  @@index([assigneeName])
 }
 
 model Guest {
