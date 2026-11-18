@@ -6,9 +6,11 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { DatabaseService } from "./database";
 import { createPersistentRateLimit } from "./rate-limit";
 import { assertRsvpTokenEncryptionKey, migrateLegacyRsvpTokens } from "./rsvp-token";
+import { assertProjectDocumentEncryptionKey } from "./project-documents";
 
 async function bootstrap() {
   assertRsvpTokenEncryptionKey();
+  assertProjectDocumentEncryptionKey();
   const app = await NestFactory.create(AppModule);
   const migratedRsvpTokens = await migrateLegacyRsvpTokens(app.get(DatabaseService));
   if (migratedRsvpTokens > 0) console.info(`Migrated ${migratedRsvpTokens} legacy RSVP token(s).`);

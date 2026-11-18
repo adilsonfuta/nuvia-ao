@@ -11,4 +11,5 @@ coverage
 /backups/
 /apps/api/data/vendor-portfolio/
 /apps/api/data/private-contribution-proofs/
+/apps/api/data/private-project-documents/
 packages/database/generated

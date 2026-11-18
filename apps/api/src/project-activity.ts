@@ -3,12 +3,13 @@ import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
 
-const categories = ["all", "event", "planning", "budget", "guests", "program", "team", "sharing", "vendors", "contributions"] as const;
+const categories = ["all", "event", "planning", "documents", "budget", "guests", "program", "team", "sharing", "vendors", "contributions"] as const;
 type ActivityCategory = typeof categories[number];
 
 const prefixes: Record<Exclude<ActivityCategory, "all">, string[]> = {
   event: ["PROJECT_CREATED", "PROJECT_UPDATED", "PROJECT_ARCHIVED", "PROJECT_RESTORED"],
   planning: ["TASK_"],
+  documents: ["PROJECT_DOCUMENT_"],
   budget: ["EXPENSE_"],
   guests: ["GUEST_", "GUESTS_"],
   program: ["PROGRAM_"],
@@ -22,6 +23,7 @@ const categoryLabel: Record<ActivityCategory, string> = {
   all: "Tudo",
   event: "Evento",
   planning: "Planeamento",
+  documents: "Documentos",
   budget: "Orçamento",
   guests: "Convidados",
   program: "Programa",
@@ -32,7 +34,7 @@ const categoryLabel: Record<ActivityCategory, string> = {
 };
 
 function categoryFor(action: string): ActivityCategory {
-  const activityCategories: Exclude<ActivityCategory, "all">[] = ["event", "planning", "budget", "guests", "program", "team", "sharing", "vendors", "contributions"];
+  const activityCategories: Exclude<ActivityCategory, "all">[] = ["event", "planning", "documents", "budget", "guests", "program", "team", "sharing", "vendors", "contributions"];
   for (const category of activityCategories) {
     if (prefixes[category].some((prefix) => action.startsWith(prefix))) return category;
   }
@@ -68,6 +70,11 @@ function describe(action: string, metadata: unknown): { title: string; detail: s
     case "TASK_CREATED": return { title: "Tarefa criada", detail: subject || null, category };
     case "TASK_UPDATED": return { title: "Tarefa actualizada", detail: subject ? `${subject}${fields ? ` · ${fields}` : ""}` : (fields ? `Alterações: ${fields}.` : null), category };
     case "TASK_DELETED": return { title: "Tarefa removida", detail: subject || null, category };
+    case "PROJECT_DOCUMENT_CREATED": return { title: "Documento adicionado à lista", detail: subject || null, category };
+    case "PROJECT_DOCUMENT_UPDATED": return { title: "Item de documentação actualizado", detail: subject || null, category };
+    case "PROJECT_DOCUMENT_FILE_UPLOADED": return { title: "Ficheiro anexado à documentação", detail: subject || null, category };
+    case "PROJECT_DOCUMENT_FILE_DOWNLOADED": return { title: "Ficheiro da documentação consultado", detail: subject || null, category };
+    case "PROJECT_DOCUMENT_DELETED": return { title: "Item de documentação removido", detail: subject || null, category };
     case "GUEST_ADDED": return { title: "Convidado adicionado à lista", detail: null, category };
     case "GUESTS_IMPORTED": return { title: "Lista de convidados importada", detail: `${count} ${count === 1 ? "registo" : "registos"} adicionados.`, category };
     case "GUEST_UPDATED": return { title: "Dados de um convidado actualizados", detail: null, category };

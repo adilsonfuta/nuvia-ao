@@ -22,13 +22,14 @@ Define no painel de variáveis da aplicação Compose, sem guardar valores reais
 - `DATABASE_URL`: `postgresql://<utilizador>:<palavra-passe>@database:5432/<base>?schema=public`. Se a palavra-passe tiver caracteres reservados de URL, codifica-os.
 - `WEB_ORIGIN`: origem exacta do site, por exemplo `https://nuvia.example.com`, sem barra final.
 - `RSVP_TOKEN_ENCRYPTION_KEY`: chave base64 de exactamente 32 bytes; gera com `openssl rand -base64 32`.
+- `PROJECT_DOCUMENT_ENCRYPTION_KEY`: chave Base64 dedicada de exactamente 32 bytes para cifrar ficheiros pessoais dos eventos; gera uma chave diferente com `openssl rand -base64 32` e mantém-na estável.
 - `TRUST_PROXY_HOPS`: usa `1` se a instalação tiver apenas o proxy confiável do Coolify antes da API; ajusta se a topologia mudar.
 
 `API_INTERNAL_URL` e `NEXT_PUBLIC_API_URL` já estão definidos no Compose. A aplicação Web chama a API pelo mesmo domínio através do rewrite do Next.js; a ligação entre containers usa `http://api:4000/api/v1`.
 
 ## Armazenamento e migrações
 
-O Compose mantém a base de dados, o portefólio dos fornecedores e os comprovativos das contribuições em volumes separados. Configura backups regulares desses volumes e testa a reposição antes de guardar dados reais.
+O Compose mantém a base de dados, o portefólio dos fornecedores, os comprovativos das contribuições e os documentos privados dos eventos em volumes separados. Os documentos são cifrados antes de serem gravados; preserva a chave `PROJECT_DOCUMENT_ENCRYPTION_KEY` fora do volume e dos backups. Configura backups regulares desses volumes e testa a reposição antes de guardar dados reais.
 
 O serviço de execução única `migrate` aplica `prisma migrate deploy` antes de iniciar a API. Está marcado com `exclude_from_hc`, extensão do Coolify para impedir que o container de migração (que termina com código zero) afecte o estado de saúde global. Mantém o modo Compose normal no Coolify para que esta extensão e o proxy gerido sejam processados. Não remova nem reinicie manualmente o volume da base de dados para resolver erros de migração. Faz backup antes de alterações de schema.
 

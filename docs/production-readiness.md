@@ -9,6 +9,7 @@ Este documento separa o que o código já suporta das operações que ainda prec
 - O utilizador escolhe explicitamente abrir email ou WhatsApp para enviar um pedido. A plataforma não envia nem confirma a entrega dessa mensagem.
 - Não colocar segredos, bases de dados ou backups em repositórios. A pasta `backups/` está excluída do Git e os ficheiros são criados sem permissões de leitura para outros utilizadores do sistema.
 - Os comprovativos das contribuições ficam fora da pasta pública, com nomes aleatórios e permissões restritas. Em produção, configurar `PRIVATE_UPLOAD_STORAGE_DIR` para volume persistente e privado, incluí-lo nos backups cifrados e definir uma política de retenção/eliminação. O endpoint de leitura exige sessão e acesso ao evento.
+- Documentos de eventos aceitam apenas PDF, JPG e PNG até 10 MB. Os ficheiros são validados pelo conteúdo, cifrados em AES-256-GCM no armazenamento privado, e só podem ser descarregados por membros do evento; uploads, alterações, downloads e remoções entram no histórico. Em produção, configurar uma chave dedicada `PROJECT_DOCUMENT_ENCRYPTION_KEY` e o volume persistente `nuvia_project_documents`; guardar a chave separada dos backups e não a rodar sem voltar a cifrar os ficheiros existentes.
 
 ## Backups e recuperação
 
@@ -36,6 +37,7 @@ Para restaurar um dump validado num banco vazio: `pg_restore --no-owner --no-acl
 
 - Aplicar migrations num ambiente de staging e verificar backup antes de produção.
 - Aplicar também a migration `20261116230000_event_contributions` e configurar `PRIVATE_UPLOAD_STORAGE_DIR` num volume privado persistente antes de disponibilizar os links públicos.
+- Configurar `PROJECT_DOCUMENT_ENCRYPTION_KEY` com 32 bytes aleatórios codificados em Base64 (`openssl rand -base64 32`) no Coolify. A migração dos documentos é aplicada pelo serviço `migrate` do Compose; preservar o volume `nuvia_project_documents` e incluir o seu conteúdo cifrado nos backups.
 - Configurar HTTPS, origem pública, `API_INTERNAL_URL`, `WEB_ORIGIN`, segredos fortes e `TRUST_PROXY_HOPS` conforme a infraestrutura.
 - Definir `NEXT_PUBLIC_SITE_URL` com a origem canónica HTTPS para metadados e sitemap; sem esta variável o sitemap permanece vazio para não publicar URLs locais.
 - Executar testes automatizados, percursos no browser com contas de teste, revisão de acessos administrativos e teste de recuperação.

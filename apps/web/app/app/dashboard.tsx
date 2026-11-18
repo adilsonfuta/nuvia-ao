@@ -26,6 +26,7 @@ import { GuestsWorkspace } from "./guests-workspace";
 import { ReportsPanel } from "./reports-panel";
 import { NotificationCenter } from "./notification-center";
 import { ActivityLogPanel } from "./activity-log-panel";
+import { DocumentsPanel } from "./documents-panel";
 import type { ProjectKind, ProjectSummary } from "@casar/contracts";
 
 type User = { id: string; email: string; name: string | null; role?: "USER" | "MODERATOR" | "ADMIN" };
@@ -128,6 +129,7 @@ type Tab =
   | "events"
   | "overview"
   | "planning"
+  | "documents"
   | "budget"
   | "contributions"
   | "share"
@@ -166,7 +168,7 @@ const DASHBOARD_PRIMARY_TABS: { key: Tab; label: string }[] = [
   { key: "events", label: "Os meus eventos" },
 ];
 const DASHBOARD_NAV_GROUPS: { id: string; label: string; keys: Tab[] }[] = [
-  { id: "preparations", label: "Preparativos", keys: ["planning", "vendors", "guests", "program"] },
+  { id: "preparations", label: "Preparativos", keys: ["planning", "documents", "vendors", "guests", "program"] },
   { id: "finance", label: "Orçamento e contribuições", keys: ["budget", "contributions"] },
   { id: "sharing", label: "Partilha", keys: ["invitation", "share"] },
   { id: "management", label: "Gestão", keys: ["team", "reports", "settings"] },
@@ -175,6 +177,7 @@ const DASHBOARD_TAB_LABEL: Record<Tab, string> = {
   events: "Os meus eventos",
   overview: "Visão geral",
   planning: "Planeamento",
+  documents: "Documentos",
   budget: "Orçamento",
   contributions: "Contribuições",
   share: "Resumo partilhável",
@@ -190,6 +193,7 @@ const DASHBOARD_TAB_URL: Record<Tab, string> = {
   events: "eventos",
   overview: "resumo",
   planning: "planeamento",
+  documents: "documentos",
   budget: "orcamento",
   contributions: "contribuicoes",
   share: "partilhar",
@@ -2148,6 +2152,13 @@ export default function Dashboard() {
                       </div>
                     )}
                   </section>
+                )}
+                {tab === "documents" && (
+                  <DocumentsPanel
+                    projectId={selected}
+                    projectKind={data.kind}
+                    canEdit={data.members.some((member) => member.user.id === user.id && member.role !== "VIEWER")}
+                  />
                 )}
                 {tab === "budget" && (
                   <BudgetPanel
