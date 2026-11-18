@@ -58,12 +58,12 @@ export default function SupportInbox() {
     setSaving(true); setError(''); setNotice('');
     try {
       if (signedIn) {
-        await api('/support/requests', { method: 'POST', body: JSON.stringify({ subject, message }) });
+        const result = await api<{ emailSent: boolean }>('/support/requests', { method: 'POST', body: JSON.stringify({ subject, message }) });
         await load();
-        setNotice('Pedido enviado. A resposta ficará disponível nesta página.');
+        setNotice(result.emailSent ? 'Pedido enviado. Também enviámos uma confirmação por email.' : 'Pedido enviado. A resposta ficará disponível nesta página.');
       } else {
-        await api('/support/public-requests', { method: 'POST', body: JSON.stringify({ name, email, subject, message }) });
-        setNotice('Pedido recebido. A equipa poderá responder pelo email indicado.');
+        const result = await api<{ message: string }>('/support/public-requests', { method: 'POST', body: JSON.stringify({ name, email, subject, message }) });
+        setNotice(result.message);
         setName(''); setEmail('');
       }
       setSubject(''); setMessage('');

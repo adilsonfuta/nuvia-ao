@@ -25,6 +25,9 @@ Define no painel de variáveis da aplicação Compose, sem guardar valores reais
 - `PROJECT_DOCUMENT_ENCRYPTION_KEY`: chave Base64 dedicada de exactamente 32 bytes para cifrar ficheiros pessoais dos eventos; gera uma chave diferente com `openssl rand -base64 32` e mantém-na estável.
 - `TRUST_PROXY_HOPS`: usa `1` se a instalação tiver apenas o proxy confiável do Coolify antes da API; ajusta se a topologia mudar.
 - `GA4_PROPERTY_ID`, `GA4_SERVICE_ACCOUNT_EMAIL` e `GA4_SERVICE_ACCOUNT_PRIVATE_KEY`: opcionais; define os três apenas se quiseres mostrar relatórios do GA4 na tab privada **Administração → Métricas**. A chave privada deve ficar como segredo do serviço `api`, nunca no serviço `web`.
+- `RESEND_API_KEY` e `RESEND_FROM_EMAIL`: configura para activar emails transaccionais. O remetente deve usar um domínio validado na conta Resend, por exemplo `Nuvia <conta@nuvia.teudominio.ao>`. A validação do domínio requer os registos DNS indicados no painel Resend, incluindo SPF/DKIM quando apresentados ([documentação de domínios](https://resend.com/docs/dashboard/domains/introduction)). Guarda a API key apenas como variável secreta do serviço `api`.
+
+Com o Resend configurado, a Nuvia envia mensagens de boas-vindas, recuperação de palavra-passe, partilha de evento, confirmação de pedido de suporte e resposta do suporte. Sem estas variáveis, os pedidos continuam guardados e as notificações internas funcionam; a recuperação de palavra-passe em produção fica indisponível. Em desenvolvimento, a API continua a devolver um link de recuperação para testes locais.
 
 `API_INTERNAL_URL` e `NEXT_PUBLIC_API_URL` já estão definidos no Compose. A aplicação Web chama a API pelo mesmo domínio através do rewrite do Next.js; a ligação entre containers usa `http://api:4000/api/v1`.
 

@@ -320,7 +320,9 @@ input,select,textarea,button{max-width:100%}
 @media(max-width:520px){.auth-recovery-link{font-size:10px}.recovery-card{padding:24px 19px}}
 
 /* In-app notifications */
-.dashboard-toolbar{display:flex;justify-content:flex-end;min-height:42px;margin:0 0 8px}
+.dashboard-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-height:42px;margin:0 0 8px}
+.dashboard-desktop-logout{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:0 13px;border:1px solid #ead7d2;border-radius:10px;background:#fff6f4;color:#84413a;font:700 12px var(--sans);cursor:pointer;transition:background .15s ease,border-color .15s ease}
+.dashboard-desktop-logout:hover{background:#fcebe8;border-color:#dfc0bb}
 .notification-center{position:relative;z-index:1200;width:max-content;margin:0}
 .notification-trigger{position:relative;display:grid;width:42px;height:42px;min-height:42px;place-items:center;padding:0;border:1px solid #e7e1d6;border-radius:12px;background:#fffefa;color:#435044;box-shadow:0 3px 12px #26302212;cursor:pointer}
 .notification-trigger:hover,.notification-trigger[aria-expanded="true"]{border-color:#b8c5a9;background:#f5f7f1}
@@ -504,6 +506,7 @@ input,select,textarea,button{max-width:100%}
 .dashboard-mobile-menu-toggle{display:none}
 .dashboard-mobile-logout{display:none}
 @media(max-width:800px){
+  .dashboard-desktop-logout{display:none}
   .dashboard-sidebar{grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px;padding:12px 16px}
   .dashboard-sidebar>.dashboard-brand{grid-column:1;grid-row:1}
   .dashboard-mobile-menu-toggle{display:inline-flex;grid-column:2;grid-row:1;align-items:center;gap:8px;min-height:40px;padding:0 13px;border:1px solid #dcd7cb;border-radius:10px;background:#fffefa;color:#304737;font:700 12px var(--sans);cursor:pointer}

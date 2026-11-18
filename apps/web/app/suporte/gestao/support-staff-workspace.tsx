@@ -69,8 +69,8 @@ export default function SupportStaffWorkspace() {
     setError('');
     setNotice('');
     try {
-      await api(`/support/requests/${ticket.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
-      setNotice(payload.response ? 'Resposta guardada. Abre o email para a enviar ao contacto, se necessário.' : 'Estado do pedido actualizado.');
+      const result = await api<{ emailSent: boolean }>(`/support/requests/${ticket.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      setNotice(payload.response ? result.emailSent ? 'Resposta enviada por email e guardada no pedido.' : 'Resposta guardada no pedido. O envio de emails ainda não está configurado.' : 'Estado do pedido actualizado.');
       await load(statusFilter, search, page);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível actualizar o pedido.');

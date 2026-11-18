@@ -1445,6 +1445,9 @@ export default function Dashboard() {
       </aside>
       <section className="dashboard-main">
         <div className="dashboard-toolbar">
+          <button className="dashboard-desktop-logout" type="button" onClick={() => void logout()}>
+            <span aria-hidden="true">↪</span> Terminar sessão
+          </button>
           <NotificationCenter onOpen={openNotification} />
         </div>
         {error && (

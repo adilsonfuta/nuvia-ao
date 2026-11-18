@@ -15,6 +15,7 @@ import { ProjectContributionsController, PublicContributionsController } from '.
 import { ProjectActivityController } from './project-activity';
 import { ProjectDocumentsController } from './project-documents';
 import { AdminAnalyticsController } from './analytics';
+import { EmailService } from './email';
 
 @Controller('health')
 class HealthController {
@@ -24,6 +25,6 @@ class HealthController {
 
 @Module({
   controllers: [HealthController, AuthController, AdminController, AdminAnalyticsController, SupportController, PublicSupportController, ProjectsController, ProjectActivityController, ProjectDocumentsController, PublicInvitationController, PublicEventSummaryController, NotificationsController, VendorsController, CatalogConfigController, VendorFavoritesController, QuoteRequestsController, GuidesController, LegalController, VenuesController, VendorApplicationsController, VendorPortalController, PublicVendorPortfolioController, ProjectContributionsController, PublicContributionsController],
-  providers: [DatabaseService, SessionGuard, AdminGuard, AdminOnlyGuard, SupportStaffGuard],
+  providers: [DatabaseService, SessionGuard, AdminGuard, AdminOnlyGuard, SupportStaffGuard, EmailService],
 })
 export class AppModule {}

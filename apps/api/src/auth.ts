@@ -4,6 +4,7 @@ import { compare, hash } from 'bcryptjs';
 import { createHash, randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { DatabaseService } from './database';
+import { EmailService, webOrigin } from './email';
 
 export class RegisterDto {
   @IsEmail() @MaxLength(180) email!: string;
@@ -86,7 +87,7 @@ export const CurrentUser = createParamDecorator((_data: unknown, ctx: ExecutionC
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
 
   private async issue(user: { id: string; email: string; name: string | null }, response: Response) {
     await this.db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
@@ -102,7 +103,9 @@ export class AuthController {
     const email = body.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where: { email } })) throw new ConflictException('Este email já tem uma conta.');
     const user = await this.db.user.create({ data: { email, name: body.name.trim(), passwordHash: await hash(body.password, 12) }, select: { id: true, email: true, name: true } });
-    return this.issue(user, response);
+    const session = await this.issue(user, response);
+    void this.email.sendWelcome(user.email, user.name, `${webOrigin()}/dashboard`, user.id);
+    return session;
   }
 
   @Post('login')
@@ -115,12 +118,12 @@ export class AuthController {
 
   @Post('password-reset/request')
   async requestPasswordReset(@Body() body: PasswordResetRequestDto) {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' && !this.email.isConfigured) {
       throw new ServiceUnavailableException('A recuperação por email ainda não está configurada. Contacta o suporte.');
     }
     const message = 'Se existir uma conta associada a este email, poderás redefinir a palavra-passe através do link de recuperação.';
     const email = body.email.trim().toLowerCase();
-    const user = await this.db.user.findUnique({ where: { email }, select: { id: true } });
+    const user = await this.db.user.findUnique({ where: { email }, select: { id: true, name: true, email: true } });
     if (!user) return { message };
 
     const now = new Date();
@@ -132,11 +135,17 @@ export class AuthController {
 
     const token = randomBytes(32).toString('base64url');
     await this.db.passwordResetToken.deleteMany({ where: { userId: user.id } });
-    await this.db.passwordResetToken.create({
+    const resetRecord = await this.db.passwordResetToken.create({
       data: { userId: user.id, tokenHash: tokenHash(token), expiresAt: new Date(now.getTime() + 30 * 60_000) },
+      select: { id: true },
     });
-    const origin = (process.env.WEB_ORIGIN || 'http://localhost:3000').replace(/\/$/, '');
-    return { message, devResetUrl: `${origin}/repor-senha?token=${encodeURIComponent(token)}` };
+    const resetUrl = `${webOrigin()}/repor-senha?token=${encodeURIComponent(token)}`;
+    if (this.email.isConfigured) {
+      const sent = await this.email.sendPasswordReset(user.email, user.name, resetUrl, resetRecord.id);
+      if (!sent) await this.db.passwordResetToken.deleteMany({ where: { id: resetRecord.id } });
+      return { message };
+    }
+    return { message, devResetUrl: resetUrl };
   }
 
   @Post('password-reset/reset')

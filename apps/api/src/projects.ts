@@ -48,6 +48,7 @@ import {
 } from "class-validator";
 import { Type } from "class-transformer";
 import { DatabaseService } from "./database";
+import { EmailService, webOrigin } from "./email";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { dismissSourceNotifications, notifyProjectMembers, notifyUser } from "./notifications";
 import { createRsvpTokenCredentials, exposeGuestRsvpToken, hashRsvpToken, revealGuestRsvpToken } from "./rsvp-token";
@@ -267,7 +268,7 @@ class RsvpDto {
 @UseGuards(SessionGuard)
 @Controller(["projects", "weddings"])
 export class ProjectsController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
   private async logActivity(
     projectId: string,
     actorId: string,
@@ -1477,6 +1478,18 @@ export class ProjectsController {
         body: `${user.name || user.email} ${existing ? "actualizou o teu acesso a" : "partilhou contigo"} ${project?.title || "um evento"}.`,
         href: `/dashboard?tab=eventos&event=${encodeURIComponent(id)}`,
       });
+      const eventUrl = `${webOrigin()}/dashboard?tab=eventos&event=${encodeURIComponent(id)}`;
+      await this.email.sendProjectShared(
+        invited.email,
+        {
+          recipient: invited.name,
+          inviter: user.name || user.email,
+          project: project?.title || "um evento",
+          role: body.role === "VIEWER" ? "Consulta" : "Edição",
+          url: eventUrl,
+        },
+        `${id}/${invited.id}/${Date.now()}`,
+      );
       await this.logActivity(
         id,
         user.id,

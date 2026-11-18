@@ -14,6 +14,7 @@ import { IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'cla
 import { SupportRequestStatus } from '@casar/database';
 import { CurrentUser, SessionGuard, SessionUser, SupportStaffGuard } from './auth';
 import { DatabaseService } from './database';
+import { EmailService, webOrigin } from './email';
 
 class CreateSupportRequestDto {
   @IsString() @MinLength(4) @MaxLength(120) subject!: string;
@@ -33,7 +34,7 @@ class UpdateSupportRequestDto {
 @Controller('support')
 @UseGuards(SessionGuard)
 export class SupportController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
 
   @Get('my-requests')
   myRequests(@CurrentUser() user: SessionUser) {
@@ -56,7 +57,8 @@ export class SupportController {
       select: { id: true, subject: true, message: true, status: true, response: true, respondedAt: true, createdAt: true, updatedAt: true },
     });
     await this.db.auditLog.create({ data: { actorId: user.id, action: 'SUPPORT_REQUEST_CREATED', resource: 'SupportRequest', resourceId: request.id } });
-    return request;
+    const emailSent = await this.email.sendSupportReceived(user.email, { name: user.name || user.email, subject: request.subject, url: `${webOrigin()}/suporte` }, request.id);
+    return { ...request, emailSent };
   }
 
   @Get('requests')
@@ -112,13 +114,16 @@ export class SupportController {
         metadata: { from: existing.status, to: request.status },
       },
     });
-    return request;
+    const emailSent = body.response && request.requesterEmail
+      ? await this.email.sendSupportResponse(request.requesterEmail, { name: request.requesterName || request.requesterEmail, subject: request.subject, response: body.response.trim(), url: `${webOrigin()}/suporte` }, `${request.id}/${request.respondedAt?.getTime() ?? request.updatedAt.getTime()}`)
+      : false;
+    return { ...request, emailSent };
   }
 }
 
 @Controller('support')
 export class PublicSupportController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
 
   @Post('public-requests')
   async create(@Body() body: PublicSupportRequestDto) {
@@ -130,6 +135,7 @@ export class PublicSupportController {
       data: { requesterName: body.name.trim(), requesterEmail: email, subject: body.subject.trim(), message: body.message.trim() },
       select: { id: true, subject: true, status: true, createdAt: true },
     });
-    return { ...request, message: 'Pedido recebido. A equipa poderá contactar-te pelo email indicado.' };
+    const emailSent = await this.email.sendSupportReceived(email, { name: body.name.trim(), subject: request.subject, url: `${webOrigin()}/suporte` }, request.id);
+    return { ...request, emailSent, message: emailSent ? 'Pedido recebido. Enviámos uma confirmação para o teu email.' : 'Pedido recebido. A equipa poderá responder pelo email indicado.' };
   }
 }
