@@ -1,4 +1,10 @@
-CREATE TYPE "VendorContentStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+DO $$
+BEGIN
+  CREATE TYPE "VendorContentStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  END;
+$$;
 CREATE TYPE "VendorClaimStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 
 ALTER TABLE "Vendor"

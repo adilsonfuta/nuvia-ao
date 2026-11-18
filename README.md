@@ -38,7 +38,7 @@ O serviço `migrate` executa `prisma migrate deploy` antes da API. Mantém os vo
 
 ### Recuperar uma migração P3009
 
-O Prisma não continua automaticamente depois de uma migração falhar. A migração `20261114135403_vendor_service_reviews` foi corrigida para tolerar a ausência do índice `Vendor_ownerUserId_idx`, mas uma base que já registou a falha continua a exigir recuperação.
+O Prisma não continua automaticamente depois de uma migração falhar. A migração `20261114135403_vendor_service_reviews` foi corrigida para criar `VendorContentStatus` antes de a tabela de avaliações a usar e para tolerar a ausência do índice `Vendor_ownerUserId_idx`. Uma base que já registou uma falha continua a exigir recuperação.
 
 Se for uma instalação inicial sem dados que precisem de ser preservados, pára a aplicação no Coolify, remove apenas o volume PostgreSQL deste recurso e volta a fazer deploy. O nome costuma incluir `nuvia-postgres-data`. Mantém os volumes `nuvia-project-documents`, `nuvia-vendor-portfolio` e `nuvia-contribution-proofs`; não uses `docker compose down -v`.
 
@@ -46,6 +46,7 @@ Se a base já contiver dados importantes, não removas o volume. Faz primeiro um
 
 ```sql
 DROP TYPE IF EXISTS "VendorReviewStatus";
+DROP TYPE IF EXISTS "VendorContentStatus";
 ```
 
 ```bash
