@@ -1,6 +1,15 @@
 -- CreateEnum
 CREATE TYPE "VendorReviewStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 
+-- VendorReview uses this enum before the portfolio migration which also owns it.
+DO $$
+BEGIN
+    CREATE TYPE "VendorContentStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END;
+$$;
+
 -- DropIndex
 DROP INDEX IF EXISTS "Vendor_ownerUserId_idx";
 
