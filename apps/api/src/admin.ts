@@ -1,17 +1,21 @@
 import {
   Body,
   Controller,
+  ConflictException,
   Get,
   BadRequestException,
   NotFoundException,
   Param,
   Patch,
   Post,
+  Query,
   Res,
+  UnauthorizedException,
   UseGuards,
 } from "@nestjs/common";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
-import { VenueStatus, VendorApplicationStatus, VendorClaimStatus, VendorContentStatus, VendorReviewStatus, VendorStatus } from "@casar/database";
+import { AccountStatus, UserRole, VenueStatus, VendorApplicationStatus, VendorClaimStatus, VendorContentStatus, VendorReviewStatus, VendorStatus } from "@casar/database";
+import { compare } from "bcryptjs";
 import type { Response } from "express";
 import { sendStoredVendorImage, vendorSocialPayloadIsSafe } from "./vendor-portal";
 import {
@@ -31,7 +35,7 @@ import {
   Min,
   MinLength,
 } from "class-validator";
-import { AdminGuard, CurrentUser, SessionGuard, SessionUser } from "./auth";
+import { AdminGuard, AdminOnlyGuard, CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
 
 class VendorInput {
@@ -75,6 +79,21 @@ class VendorInput {
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) instagramUrl?: string;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) facebookUrl?: string;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) tiktokUrl?: string;
+}
+
+class AccountStatusInput {
+  @IsEnum(AccountStatus) status!: AccountStatus;
+  @ValidateIf((body: AccountStatusInput) => body.status === AccountStatus.SUSPENDED)
+  @IsString() @MinLength(8) @MaxLength(500) reason?: string;
+}
+
+class AccountRoleInput {
+  @IsEnum(UserRole) role!: UserRole;
+}
+class PromoteAccountToAdminInput {
+  @IsEmail() @MaxLength(180) confirmEmail!: string;
+  @IsString() @MinLength(8) @MaxLength(128) currentPassword!: string;
+  @IsString() @MinLength(8) @MaxLength(500) reason!: string;
 }
 class VendorReview {
   @IsOptional() @IsEnum(VendorStatus) status?: VendorStatus;
@@ -266,6 +285,171 @@ class VendorRatingReviewDto {
 @Controller("admin")
 export class AdminController {
   constructor(private readonly db: DatabaseService) {}
+
+  @Get("accounts")
+  @UseGuards(AdminOnlyGuard)
+  async accounts(
+    @Query("q") query?: string,
+    @Query("status") status?: string,
+    @Query("role") roleValue?: string,
+    @Query("page") pageValue?: string,
+    @Query("pageSize") pageSizeValue?: string,
+    @Query("createdFrom") createdFromValue?: string,
+    @Query("createdTo") createdToValue?: string,
+  ) {
+    const page = Math.max(1, Math.min(10000, Number.parseInt(pageValue ?? "1", 10) || 1));
+    const requestedPageSize = /^\d+$/.test(pageSizeValue ?? "") ? Number(pageSizeValue) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+    const search = query?.trim().slice(0, 100);
+    if (status && !Object.values(AccountStatus).includes(status as AccountStatus))
+      throw new BadRequestException("Estado de conta inválido.");
+    if (roleValue && !Object.values(UserRole).includes(roleValue as UserRole))
+      throw new BadRequestException("Papel de conta inválido.");
+    const accountStatus = status as AccountStatus | undefined;
+    const role = roleValue as UserRole | undefined;
+    const parseLocalDate = (value: string | undefined, exclusiveEnd = false) => {
+      if (!value) return undefined;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new BadRequestException("Usa uma data válida para filtrar as contas.");
+      const calendarDate = new Date(`${value}T00:00:00.000Z`);
+      if (Number.isNaN(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== value)
+        throw new BadRequestException("Usa uma data válida para filtrar as contas.");
+      const date = new Date(`${value}T00:00:00+01:00`);
+      if (Number.isNaN(date.getTime())) throw new BadRequestException("Usa uma data válida para filtrar as contas.");
+      if (exclusiveEnd) date.setUTCDate(date.getUTCDate() + 1);
+      return date;
+    };
+    const createdFrom = parseLocalDate(createdFromValue);
+    const createdTo = parseLocalDate(createdToValue, true);
+    if (createdFrom && createdTo && createdFrom >= createdTo)
+      throw new BadRequestException("A data inicial deve ser anterior ou igual à data final.");
+    const where = {
+      ...(accountStatus ? { accountStatus } : {}),
+      ...(role ? { role } : {}),
+      ...(createdFrom || createdTo ? { createdAt: { ...(createdFrom ? { gte: createdFrom } : {}), ...(createdTo ? { lt: createdTo } : {}) } } : {}),
+      ...(search ? { OR: [
+        { email: { contains: search, mode: "insensitive" as const } },
+        { name: { contains: search, mode: "insensitive" as const } },
+      ] } : {}),
+    };
+    const [items, total, activeCount, suspendedCount] = await Promise.all([
+      this.db.user.findMany({
+        where,
+        select: {
+          id: true, name: true, email: true, role: true, accountStatus: true,
+          createdAt: true, lastLoginAt: true, suspendedAt: true, suspensionReason: true,
+          _count: { select: {
+            projects: true,
+            supportRequests: { where: { status: { in: ["OPEN", "IN_PROGRESS"] } } },
+          } },
+        },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.db.user.count({ where }),
+      this.db.user.count({ where: { accountStatus: AccountStatus.ACTIVE } }),
+      this.db.user.count({ where: { accountStatus: AccountStatus.SUSPENDED } }),
+    ]);
+    return { items, total, page, pageSize, activeCount, suspendedCount };
+  }
+
+  @Patch("accounts/:id/status")
+  @UseGuards(AdminOnlyGuard)
+  async updateAccountStatus(@Param("id") id: string, @Body() body: AccountStatusInput, @CurrentUser() actor: SessionUser) {
+    const account = await this.db.user.findUnique({ where: { id }, select: { id: true, role: true, accountStatus: true } });
+    if (!account) throw new NotFoundException("Conta não encontrada.");
+    if (account.role !== UserRole.USER && account.role !== UserRole.SUPPORT)
+      throw new BadRequestException("Contas da equipa administrativa não podem ser suspensas por esta via.");
+    if (actor.id === id) throw new BadRequestException("Não podes suspender a tua própria conta.");
+    if (body.status === AccountStatus.SUSPENDED && !body.reason?.trim())
+      throw new BadRequestException("Indica o motivo da suspensão.");
+    if (account.accountStatus === body.status) return { ok: true, account };
+    const suspended = body.status === AccountStatus.SUSPENDED;
+    const updated = await this.db.$transaction(async (tx) => {
+      const result = await tx.user.update({
+        where: { id },
+        data: {
+          accountStatus: body.status,
+          suspendedAt: suspended ? new Date() : null,
+          suspensionReason: suspended ? body.reason!.trim() : null,
+        },
+        select: { id: true, name: true, email: true, role: true, accountStatus: true, suspendedAt: true, suspensionReason: true },
+      });
+      if (suspended) await tx.session.deleteMany({ where: { userId: id } });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: suspended ? "ACCOUNT_SUSPENDED" : "ACCOUNT_REACTIVATED",
+          resource: "User",
+          resourceId: id,
+          metadata: { from: account.accountStatus, to: body.status, reason: suspended ? body.reason!.trim() : null },
+        },
+      });
+      return result;
+    });
+    return updated;
+  }
+
+  @Patch("accounts/:id/role")
+  @UseGuards(AdminOnlyGuard)
+  async updateAccountRole(@Param("id") id: string, @Body() body: AccountRoleInput, @CurrentUser() actor: SessionUser) {
+    if (body.role !== UserRole.USER && body.role !== UserRole.SUPPORT)
+      throw new BadRequestException("Só é possível atribuir os papéis de utilizador ou suporte nesta área.");
+    const account = await this.db.user.findUnique({ where: { id }, select: { id: true, role: true, accountStatus: true } });
+    if (!account) throw new NotFoundException("Conta não encontrada.");
+    if (account.role !== UserRole.USER && account.role !== UserRole.SUPPORT)
+      throw new BadRequestException("O papel de administrador ou moderador não pode ser alterado nesta área.");
+    if (body.role === UserRole.SUPPORT && account.accountStatus !== AccountStatus.ACTIVE)
+      throw new BadRequestException("Reactiva a conta antes de lhe atribuíres acesso de suporte.");
+    if (account.role === body.role) return { ok: true, account };
+    const updated = await this.db.$transaction(async (tx) => {
+      const result = await tx.user.update({ where: { id }, data: { role: body.role }, select: { id: true, name: true, email: true, role: true, accountStatus: true } });
+      await tx.auditLog.create({ data: { actorId: actor.id, action: "ACCOUNT_ROLE_CHANGED", resource: "User", resourceId: id, metadata: { from: account.role, to: body.role } } });
+      return result;
+    });
+    return updated;
+  }
+
+  @Patch("accounts/:id/promote-admin")
+  @UseGuards(AdminOnlyGuard)
+  async promoteAccountToAdmin(@Param("id") id: string, @Body() body: PromoteAccountToAdminInput, @CurrentUser() actor: SessionUser) {
+    const [target, administrator] = await Promise.all([
+      this.db.user.findUnique({ where: { id }, select: { id: true, name: true, email: true, role: true, accountStatus: true } }),
+      this.db.user.findUnique({ where: { id: actor.id }, select: { passwordHash: true, role: true, accountStatus: true } }),
+    ]);
+    if (!target) throw new NotFoundException("Conta não encontrada.");
+    if (!administrator || administrator.role !== UserRole.ADMIN || administrator.accountStatus !== AccountStatus.ACTIVE)
+      throw new BadRequestException("A conta administrativa actual não está activa.");
+    if (target.role !== UserRole.USER && target.role !== UserRole.SUPPORT)
+      throw new BadRequestException("Só é possível promover contas de utilizador ou suporte.");
+    if (target.accountStatus !== AccountStatus.ACTIVE)
+      throw new BadRequestException("Reactiva a conta antes de a promover.");
+    if (target.email.trim().toLocaleLowerCase("en-US") !== body.confirmEmail.trim().toLocaleLowerCase("en-US"))
+      throw new BadRequestException("O email de confirmação não corresponde à conta seleccionada.");
+    if (Buffer.byteLength(body.currentPassword, "utf8") > 72)
+      throw new BadRequestException("A palavra-passe excede o limite permitido.");
+    if (!(await compare(body.currentPassword, administrator.passwordHash)))
+      throw new UnauthorizedException("A palavra-passe do administrador está incorrecta.");
+    const reason = body.reason.trim();
+    if (reason.length < 8) throw new BadRequestException("Indica um motivo com pelo menos 8 caracteres.");
+
+    return this.db.$transaction(async (tx) => {
+      const promoted = await tx.user.updateMany({ where: { id, role: target.role, accountStatus: AccountStatus.ACTIVE }, data: { role: UserRole.ADMIN } });
+      if (promoted.count !== 1) throw new ConflictException("A conta foi alterada entretanto. Actualiza a lista e tenta novamente.");
+      const result = await tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, name: true, email: true, role: true, accountStatus: true } });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: "ACCOUNT_ADMIN_PROMOTED",
+          resource: "User",
+          resourceId: id,
+          metadata: { from: target.role, to: UserRole.ADMIN, reason },
+        },
+      });
+      return result;
+    });
+  }
+
   @Get("vendors") vendors() {
     return this.db.vendor.findMany({ orderBy: [{ status: "asc" }, { createdAt: "desc" }] });
   }
@@ -598,13 +782,22 @@ export class AdminController {
     });
   }
 
-  @Get("audit") async audit() {
-    return this.db.auditLog.findMany({
-      where: { resource: { in: ["Vendor", "Venue", "VendorApplication", "PlatformConfig", "VendorClaim", "VendorPortfolioItem", "VendorProfileSubmission", "VendorReview"] } },
+  @Get("audit") async audit(@CurrentUser() actor: SessionUser, @Query("page") pageRaw = "1", @Query("pageSize") pageSizeRaw = "20") {
+    const account = await this.db.user.findUnique({ where: { id: actor.id }, select: { role: true } });
+    const resources = ["Vendor", "Venue", "VendorApplication", "PlatformConfig", "VendorClaim", "VendorPortfolioItem", "VendorProfileSubmission", "VendorReview"];
+    if (account?.role === UserRole.ADMIN) resources.push("User", "SupportRequest");
+    const page = Math.max(1, Math.min(10000, Number.parseInt(pageRaw, 10) || 1));
+    const requestedPageSize = /^\d+$/.test(pageSizeRaw) ? Number(pageSizeRaw) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+    const where = { resource: { in: resources } };
+    const [items, total] = await Promise.all([this.db.auditLog.findMany({
+      where,
       include: { actor: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }), this.db.auditLog.count({ where })]);
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
   @Get("config") async config(@CurrentUser() user: SessionUser) {

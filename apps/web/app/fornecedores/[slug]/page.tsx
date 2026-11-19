@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, FormEvent } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { api } from "../../lib/api";
 import { formatAOA } from "../../lib/format";
+import { ListPagination } from "../../lib/list-pagination";
 import "./vendor-profile.css";
 
 type Vendor = {
@@ -34,7 +35,7 @@ type Vendor = {
   isDemo: boolean;
   phone: string | null;
   email: string | null;
-  reviewSummary: { average: number | null; count: number; items: { id: string; rating: number; communicationRating: number; punctualityRating: number; qualityRating: number; comment: string | null; reviewerName: string | null; createdAt: string; response: string | null }[] };
+  reviewSummary: { average: number | null; count: number; pagination: { page: number; pageSize: number; total: number; totalPages: number }; items: { id: string; rating: number; communicationRating: number; punctualityRating: number; qualityRating: number; comment: string | null; reviewerName: string | null; createdAt: string; response: string | null }[] };
 };
 type Wedding = {
   id: string;
@@ -58,6 +59,8 @@ export default function VendorPage() {
     : `/fornecedores${projectContext ? `?projectId=${encodeURIComponent(projectContext)}` : ""}`;
   const profileReturnPath = `/fornecedores/${slug}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
   const [vendor, setVendor] = useState<Vendor | null>(null);
+  const [reviewPage, setReviewPage] = useState(1);
+  const [reviewPageSize, setReviewPageSize] = useState(10);
   const [weddings, setWeddings] = useState<Wedding[]>([]);
   const [weddingId, setWeddingId] = useState("");
   const [service, setService] = useState("");
@@ -82,9 +85,12 @@ export default function VendorPage() {
   ] : [];
 
   useEffect(() => {
-    api<Vendor>(`/vendors/${slug}`)
+    api<Vendor>(`/vendors/${slug}?page=${reviewPage}&pageSize=${reviewPageSize}`)
       .then(setVendor)
       .catch((err) => setError(err.message));
+  }, [slug, reviewPage, reviewPageSize]);
+
+  useEffect(() => {
     api<{ user: unknown }>("/auth/me")
       .then(() => { setSignedIn(true); return api<Wedding[]>("/projects"); })
       .then((items) => {
@@ -106,7 +112,7 @@ export default function VendorPage() {
         }
       })
       .catch(() => setSignedIn(false));
-  }, [slug, projectContext]);
+  }, [projectContext]);
 
   useEffect(() => {
     if (searchParams.get("intent") !== "quote") return;
@@ -421,7 +427,7 @@ export default function VendorPage() {
           <h2>Avaliações</h2>
           {vendor.reviewSummary.count ? <>
             <div className="vendor-rating-summary"><strong>{vendor.reviewSummary.average?.toFixed(1)} <span aria-hidden="true">★</span></strong><span>{vendor.reviewSummary.count} {vendor.reviewSummary.count === 1 ? "avaliação" : "avaliações"} de serviços contratados</span></div>
-            <div className="vendor-public-reviews">{vendor.reviewSummary.items.map(review => <article key={review.id}><header><strong>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</strong><span>Contratação registada no evento</span></header><p className="vendor-review-author">{review.reviewerName || "Membro do evento · anónimo"} · {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(review.createdAt))}</p>{review.comment && <p>{review.comment}</p>}<small>Qualidade {review.qualityRating}/5 · Comunicação {review.communicationRating}/5 · Pontualidade {review.punctualityRating}/5</small>{review.response && <blockquote><strong>Resposta do prestador</strong><br/>{review.response}</blockquote>}</article>)}</div>
+            <div className="vendor-public-reviews">{vendor.reviewSummary.items.map(review => <article key={review.id}><header><strong>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</strong><span>Contratação registada no evento</span></header><p className="vendor-review-author">{review.reviewerName || "Membro do evento · anónimo"} · {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(review.createdAt))}</p>{review.comment && <p>{review.comment}</p>}<small>Qualidade {review.qualityRating}/5 · Comunicação {review.communicationRating}/5 · Pontualidade {review.punctualityRating}/5</small>{review.response && <blockquote><strong>Resposta do prestador</strong><br/>{review.response}</blockquote>}</article>)}</div><ListPagination page={vendor.reviewSummary.pagination.page} pageSize={vendor.reviewSummary.pagination.pageSize} total={vendor.reviewSummary.pagination.total} label="avaliações" onPageChange={setReviewPage} onPageSizeChange={(size) => { setReviewPageSize(size); setReviewPage(1); }} />
           </> : <p className="profile-missing">Ainda não há avaliações de serviços contratados. Não apresentamos classificações demonstrativas.</p>}
         </section>
 

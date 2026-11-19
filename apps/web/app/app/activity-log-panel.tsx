@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { ListPagination } from "../lib/list-pagination";
 
 type ActivityCategory = "all" | "event" | "planning" | "budget" | "guests" | "program" | "team" | "sharing" | "vendors" | "contributions";
 type ActivityItem = {
@@ -52,6 +53,7 @@ export function ActivityLogPanel({
   const [to, setTo] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(compact ? 5 : 20);
   const [data, setData] = useState<ActivityResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -60,8 +62,8 @@ export function ActivityLogPanel({
     let active = true;
     setLoading(true);
     const params = new URLSearchParams({
-      page: String(compact ? 1 : page),
-      limit: compact ? "5" : "20",
+      page: String(page),
+      limit: String(pageSize),
       category: compact ? "all" : category,
     });
     if (!compact && actor) params.set("actor", actor);
@@ -81,7 +83,7 @@ export function ActivityLogPanel({
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [actor, category, compact, from, page, projectId, to]);
+  }, [actor, category, compact, from, page, pageSize, projectId, to]);
 
   const groupedItems = (data?.items ?? []).reduce<Array<{ label: string; items: ActivityItem[] }>>((groups, item) => {
     const label = dayLabel(item.createdAt);
@@ -156,13 +158,7 @@ export function ActivityLogPanel({
       ) : (
         <p className="activity-empty">{hasFilters ? <>Nenhuma actividade corresponde a estes filtros. <button type="button" onClick={clearFilters}>Limpar filtros</button></> : "Ainda não há alterações registadas. As próximas mudanças feitas pela equipa aparecem aqui."}</p>
       )}
-      {!compact && data && data.pagination.totalPages > 1 && (
-        <nav className="activity-pagination" aria-label="Paginação do histórico">
-          <button type="button" className="button button-outline compact" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}>← Anterior</button>
-          <span>Página {page} de {data.pagination.totalPages} · {data.pagination.total} registos</span>
-          <button type="button" className="button button-outline compact" disabled={page >= data.pagination.totalPages || loading} onClick={() => setPage((current) => current + 1)}>Seguinte →</button>
-        </nav>
-      )}
+      {data && <ListPagination page={page} pageSize={data.pagination.pageSize} total={data.pagination.total} label="actividades" sizes={compact ? [5, 10, 20] : undefined} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />}
     </section>
   );
 }

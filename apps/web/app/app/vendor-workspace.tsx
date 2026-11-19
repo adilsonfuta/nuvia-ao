@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { formatAOA } from '../lib/format';
+import { ListPagination, useListPage } from '../lib/list-pagination';
 
 export type ProjectVendorFavorite = { vendor: { id: string; slug: string; name: string; category: string; province: string | null; municipality: string | null; priceFrom: string | null; priceTo: string | null; isDemo: boolean } };
 export type VendorReview = { id: string; rating: number; communicationRating: number; punctualityRating: number; qualityRating: number; comment: string | null; isAnonymous: boolean; status: 'PENDING'|'APPROVED'|'REJECTED'; rejectionReason: string | null; response: string | null; responseStatus: 'PENDING'|'APPROVED'|'REJECTED'|null; responseReason: string | null; createdAt: string };
@@ -24,6 +25,9 @@ export function VendorWorkspace({ projectId, projectTitle, projectDate, province
   favorites: ProjectVendorFavorite[]; requests: VendorRequest[]; onRefresh: () => Promise<void>; onOpenBudget: () => void;
 }) {
   const [filter, setFilter] = useState('ALL');
+  const [requestPage, setRequestPage] = useState(1); const [requestPageSize, setRequestPageSize] = useState(10);
+  const [favoritePage, setFavoritePage] = useState(1); const [favoritePageSize, setFavoritePageSize] = useState(10);
+  const [catalogPage, setCatalogPage] = useState(1); const [catalogPageSize, setCatalogPageSize] = useState(10);
   const [responseId, setResponseId] = useState('');
   const [responseAmount, setResponseAmount] = useState('');
   const [responseNote, setResponseNote] = useState('');
@@ -47,6 +51,9 @@ export function VendorWorkspace({ projectId, projectTitle, projectDate, province
   const [reviewDraft, setReviewDraft] = useState<ReviewDraft | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const filteredRequests = useMemo(() => filter === 'ALL' ? requests : requests.filter((request) => request.status === filter), [filter, requests]);
+  const { pageItems: visibleRequests } = useListPage(filteredRequests, requestPage, requestPageSize);
+  const { pageItems: visibleFavorites } = useListPage(favorites, favoritePage, favoritePageSize);
+  const { pageItems: visibleVendors } = useListPage(vendorResults, catalogPage, catalogPageSize);
 
   useEffect(() => { void searchVendors(); }, []);
   useEffect(() => {
@@ -140,7 +147,7 @@ export function VendorWorkspace({ projectId, projectTitle, projectDate, province
         <button className="button button-primary compact" disabled={vendorSearchBusy}>{vendorSearchBusy?'A pesquisar…':'Pesquisar'}</button>
       </form>
       {vendorSearchError && <p className="form-error" role="alert">{vendorSearchError}</p>}
-      {vendorSearchBusy ? <p className="vendor-catalog-empty">A carregar perfis…</p> : vendorResults.length ? <div className="vendor-dashboard-grid">{vendorResults.map(vendor=>{
+      {vendorSearchBusy ? <p className="vendor-catalog-empty">A carregar perfis…</p> : vendorResults.length ? <><div className="vendor-dashboard-grid">{visibleVendors.map(vendor=>{
         const saved=favorites.some(item=>item.vendor.id===vendor.id);
         return <article className="vendor-dashboard-card" key={vendor.id}>
           <div className="vendor-dashboard-card-top"><span className="vendor-monogram" aria-hidden="true">{vendor.name.slice(0,1)}</span><span className="vendor-dashboard-category">{vendor.category}</span>{vendor.isDemo&&<span className="demo-badge">Demonstração</span>}</div>
@@ -148,21 +155,21 @@ export function VendorWorkspace({ projectId, projectTitle, projectDate, province
           <div className="vendor-dashboard-facts"><span>{[vendor.municipality,vendor.province].filter(Boolean).join(', ')||'Local por confirmar'}</span><span>{vendor.priceFrom?`A partir de ${formatAOA(vendor.priceFrom)}${vendor.priceTo?` · até ${formatAOA(vendor.priceTo)}`:''}`:'Preço por consultar'}</span></div>
           <footer><button type="button" className="vendor-dashboard-details" onClick={()=>void openVendor(vendor.slug)}>Ver detalhes</button><button type="button" className={saved?'favorite-button saved':'favorite-button'} aria-pressed={saved} onClick={()=>void toggleProjectFavorite(vendor.id)}>{saved?'Guardado':'Guardar no evento'}</button></footer>
         </article>;
-      })}</div> : <div className="vendor-catalog-empty"><strong>{vendorSearch||vendorCategory||vendorProvince?'Não encontrámos perfis com estes filtros.':'Ainda não há perfis publicados.'}</strong><span>{vendorSearch||vendorCategory||vendorProvince?'Tenta outra pesquisa ou categoria.':'Quando houver perfis activos, aparecerão aqui para comparar.'}</span></div>}
+      })}</div><ListPagination page={catalogPage} pageSize={catalogPageSize} total={vendorResults.length} label="fornecedores" onPageChange={setCatalogPage} onPageSizeChange={(size) => { setCatalogPageSize(size); setCatalogPage(1); }} /></> : <div className="vendor-catalog-empty"><strong>{vendorSearch||vendorCategory||vendorProvince?'Não encontrámos perfis com estes filtros.':'Ainda não há perfis publicados.'}</strong><span>{vendorSearch||vendorCategory||vendorProvince?'Tenta outra pesquisa ou categoria.':'Quando houver perfis activos, aparecerão aqui para comparar.'}</span></div>}
       <p className="vendor-request-disclosure">Os perfis demonstrativos são fictícios. Os pedidos ficam registados para acompanhamento e ainda não são enviados pela plataforma.</p>
     </section>
 
     <section className="vendor-shortlist" aria-labelledby="vendor-shortlist-title"><header className="vendor-workspace-heading"><div><p className="eyebrow">Comparar opções</p><h3 id="vendor-shortlist-title">Lista curta <span>{favorites.length}</span></h3></div><p>Os favoritos ficam associados a este evento.</p></header>
-      {favorites.length ? <div className="vendor-compare-grid">{favorites.map(({ vendor }) => <article className="vendor-compare-card" key={vendor.id}>
+      {favorites.length ? <><div className="vendor-compare-grid">{visibleFavorites.map(({ vendor }) => <article className="vendor-compare-card" key={vendor.id}>
         <div className="vendor-compare-card-heading"><div><small>{vendor.category}</small><h4>{vendor.name}</h4></div>{vendor.isDemo && <span className="demo-badge">Demonstração</span>}</div>
         <dl><div><dt>Localização</dt><dd>{[vendor.municipality, vendor.province].filter(Boolean).join(', ') || 'Por confirmar'}</dd></div><div><dt>Faixa de preço publicada</dt><dd>{vendor.priceFrom ? `${formatAOA(vendor.priceFrom)}${vendor.priceTo ? ` – ${formatAOA(vendor.priceTo)}` : ' +'}` : 'Sem preço publicado'}</dd></div></dl>
         <footer><button type="button" onClick={() => void openVendor(vendor.slug)}>Ver detalhes</button><button type="button" onClick={() => void removeFavorite(vendor.id)}>Remover</button></footer>
-      </article>)}</div> : <div className="vendor-shortlist-empty"><p>Ainda não guardaste fornecedores para este evento.</p><a href={`/fornecedores?projectId=${encodeURIComponent(projectId)}`}>Explorar o directório →</a></div>}
+      </article>)}</div><ListPagination page={favoritePage} pageSize={favoritePageSize} total={favorites.length} label="favoritos" onPageChange={setFavoritePage} onPageSizeChange={(size) => { setFavoritePageSize(size); setFavoritePage(1); }} /></> : <div className="vendor-shortlist-empty"><p>Ainda não guardaste fornecedores para este evento.</p><a href={`/fornecedores?projectId=${encodeURIComponent(projectId)}`}>Explorar o directório →</a></div>}
     </section>
 
     <section className="vendor-requests" aria-labelledby="vendor-requests-title"><header className="vendor-workspace-heading"><div><p className="eyebrow">Acompanhamento</p><h3 id="vendor-requests-title">Pedidos de informação <span>{requests.length}</span></h3></div><label>Mostrar<select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="ALL">Todos os estados</option><option value="NEW">Guardados</option><option value="SENT">Enviados manualmente</option><option value="RESPONDED">Com resposta</option><option value="HIRED">Contratados</option><option value="CLOSED">Fechados</option></select></label></header>
       <p className="vendor-request-disclosure">Os pedidos para perfis com gestão activa são entregues na área Nuvia do prestador. Nos restantes perfis, usa os contactos publicados e regista o acompanhamento aqui. Perfis demonstrativos são fictícios.</p>
-      {filteredRequests.length ? <div className="vendor-request-list">{filteredRequests.map((request) => <article className="vendor-request-card" key={request.id}>
+      {filteredRequests.length ? <><div className="vendor-request-list">{visibleRequests.map((request) => <article className="vendor-request-card" key={request.id}>
         <header><div><small>{request.vendor.category} · Criado em {formatDate(request.createdAt)}</small><h4><button type="button" className="vendor-request-vendor-link" onClick={()=>void openVendor(request.vendor.slug)}>{request.vendor.name}</button></h4></div><span className={`vendor-request-status ${request.status.toLowerCase()}`}>{statusLabel[request.status]}</span></header>
         {request.vendor.isDemo && <p className="vendor-demo-note">Perfil demonstrativo: nenhum prestador real será contactado.</p>}
         <p className="vendor-request-message">{request.message}</p>
@@ -174,7 +181,7 @@ export function VendorWorkspace({ projectId, projectTitle, projectDate, province
         {request.status === 'HIRED' && <section className="vendor-review-prompt"><h5>Avaliação do serviço</h5>{!isPastEventDate(projectDate) ? <p>A avaliação fica disponível depois da data do evento.</p> : request.review?.status === 'APPROVED' ? <p className="vendor-review-state">Avaliação publicada · {request.review.rating}/5{request.review.responseStatus === 'PENDING' ? ' · resposta do fornecedor em revisão' : ''}</p> : request.review?.status === 'PENDING' ? <p className="vendor-review-state">A tua avaliação está em revisão antes de ser publicada.</p> : <><p>{request.review?.status === 'REJECTED' ? `A avaliação precisa de alterações: ${request.review.rejectionReason || 'revê o comentário e volta a enviar.'}` : 'Partilha como correu o serviço. A equipa revê a avaliação antes da publicação.'}</p><button type="button" className="vendor-inline-action" onClick={() => openReview(request)}>{request.review?.status === 'REJECTED' ? 'Editar e reenviar' : 'Avaliar serviço'}</button></>}{reviewDraft?.requestId === request.id && <form className="vendor-review-form" onSubmit={event => void submitReview(event)}><RatingScale label="Avaliação geral" value={reviewDraft.rating} onChange={rating => setReviewDraft(current => current ? { ...current, rating } : current)}/><RatingScale label="Qualidade do serviço" value={reviewDraft.qualityRating} onChange={qualityRating => setReviewDraft(current => current ? { ...current, qualityRating } : current)}/><RatingScale label="Comunicação" value={reviewDraft.communicationRating} onChange={communicationRating => setReviewDraft(current => current ? { ...current, communicationRating } : current)}/><RatingScale label="Pontualidade" value={reviewDraft.punctualityRating} onChange={punctualityRating => setReviewDraft(current => current ? { ...current, punctualityRating } : current)}/><label>Comentário opcional<textarea maxLength={1500} value={reviewDraft.comment} onChange={e => setReviewDraft(current => current ? { ...current, comment: e.target.value } : current)} placeholder="Descreve a tua experiência com este serviço."/></label><label className="vendor-review-anonymous"><input type="checkbox" checked={reviewDraft.isAnonymous} onChange={e => setReviewDraft(current => current ? { ...current, isAnonymous: e.target.checked } : current)}/> Publicar sem o meu nome (recomendado)</label><small>Apenas serviços marcados como contratados podem ser avaliados. A plataforma associa a avaliação ao pedido e à despesa marcados como contratados; não confirma a contratação junto do prestador.</small><div><button type="button" className="button button-outline compact" onClick={() => setReviewDraft(null)}>Cancelar</button><button className="button button-primary compact" disabled={reviewBusy}>{reviewBusy ? 'A enviar…' : 'Enviar para revisão'}</button></div></form>}</section>}
         {hireId === request.id && request.status !== 'HIRED' && <form className="vendor-hire-form" onSubmit={(event) => void hire(event, request.id)}><p>Ao confirmar, o pedido passa a contratado e uma despesa “Contratada” é criada no orçamento deste evento.</p><label>Valor acordado (Kz)<input required type="number" min="0" step="any" value={hireAmount} onChange={(event) => setHireAmount(event.target.value)} placeholder="Valor confirmado"/></label><label>Prazo de pagamento (opcional)<input type="date" value={hireDueAt} onChange={(event) => setHireDueAt(event.target.value)}/></label><div><button type="button" className="button button-outline compact" onClick={() => setHireId('')}>Cancelar</button><button className="button button-primary compact" disabled={busyId === request.id}>{busyId === request.id ? 'A guardar…' : 'Confirmar contratação'}</button></div></form>}
         {request.status === 'CLOSED' && <button type="button" className="vendor-inline-action" onClick={() => void updateRequest(request.id, { status: 'SENT' })}>Reabrir acompanhamento</button>}
-      </article>)}</div> : <p className="vendor-shortlist-empty">{requests.length ? 'Não há pedidos neste estado.' : 'Ainda não há pedidos. Abre os detalhes de um fornecedor acima para guardar um pedido para este evento.'}</p>}
+      </article>)}</div><ListPagination page={requestPage} pageSize={requestPageSize} total={filteredRequests.length} label="pedidos" onPageChange={setRequestPage} onPageSizeChange={(size) => { setRequestPageSize(size); setRequestPage(1); }} /></> : <p className="vendor-shortlist-empty">{requests.length ? 'Não há pedidos neste estado.' : 'Ainda não há pedidos. Abre os detalhes de um fornecedor acima para guardar um pedido para este evento.'}</p>}
     </section>
 
     {(profileLoading||selectedVendor||profileError)&&<div className="vendor-profile-overlay" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget){setSelectedVendor(null);setProfileError('');}}}>

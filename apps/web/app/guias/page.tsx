@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
+import { ListPagination, useListPage } from '../lib/list-pagination';
 
 type Guide = {
   slug: string;
@@ -23,6 +24,8 @@ export default function GuidesPage() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('Todos');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   async function loadGuides() {
     setLoading(true);
@@ -47,6 +50,7 @@ export default function GuidesPage() {
       return matchesCategory && matchesQuery;
     });
   }, [category, guides, query]);
+  const { pageItems: displayedGuides } = useListPage(filteredGuides, page, pageSize);
 
   return (
     <main className="catalog-page guides-page">
@@ -103,8 +107,8 @@ export default function GuidesPage() {
           </div>
 
           {filteredGuides.length ? (
-            <div className="guides-grid">
-              {filteredGuides.map((guide, index) => (
+            <><div className="guides-grid">
+              {displayedGuides.map((guide, index) => (
                 <a className={`guide-card guide-card-tone-${index % 3}`} href={`/guias/${guide.slug}`} key={guide.slug}>
                   <div className="guide-card-topline"><span>{guide.category}</span><span className="guide-card-arrow" aria-hidden="true">↗</span></div>
                   <div className="guide-card-content">
@@ -118,6 +122,7 @@ export default function GuidesPage() {
                 </a>
               ))}
             </div>
+            <ListPagination page={page} pageSize={pageSize} total={filteredGuides.length} label="guias" onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} /></>
           ) : (
             <section className="guides-no-results">
               <h3>Não encontrámos guias com esses critérios.</h3>

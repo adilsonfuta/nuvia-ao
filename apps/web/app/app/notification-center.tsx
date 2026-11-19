@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { ListPagination } from "../lib/list-pagination";
 
 export type DashboardNotification = {
   id: string;
@@ -17,6 +18,7 @@ export type DashboardNotification = {
 type NotificationResponse = {
   items: DashboardNotification[];
   unreadCount: number;
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
 };
 
 export function NotificationCenter({
@@ -26,19 +28,23 @@ export function NotificationCenter({
 }) {
   const [items, setItems] = useState<DashboardNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const refresh = useCallback(async () => {
     try {
-      const result = await api<NotificationResponse>("/notifications");
+      const result = await api<NotificationResponse>(`/notifications?page=${page}&pageSize=${pageSize}`);
       setItems(result.items);
       setUnreadCount(result.unreadCount);
+      setTotal(result.pagination.total);
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível carregar notificações.");
     }
-  }, []);
+  }, [page, pageSize]);
 
   useEffect(() => {
     void refresh();
@@ -130,7 +136,7 @@ export function NotificationCenter({
           </header>
           {error && <p className="notification-error" role="alert">{error}</p>}
           {items.length ? (
-            <ul>
+            <><ul>
               {items.map((item) => (
                 <li key={item.id}>
                   <button type="button" className={item.readAt ? "notification-item is-read" : "notification-item is-unread"} onClick={() => void openItem(item)}>
@@ -144,7 +150,7 @@ export function NotificationCenter({
                   </button>
                 </li>
               ))}
-            </ul>
+            </ul><ListPagination page={page} pageSize={pageSize} total={total} label="notificações" onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} /></>
           ) : !error ? (
             <p className="notification-empty">Ainda não há notificações. Avisaremos aqui sobre tarefas, prazos, pagamentos, convidados, contribuições e partilhas.</p>
           ) : null}

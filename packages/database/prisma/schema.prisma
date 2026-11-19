@@ -109,6 +109,18 @@ enum RsvpStatus {
   DECLINED
 }
 
+enum RsvpResponseSource {
+  PUBLIC_LINK
+  MANUAL
+}
+
+enum GuestRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVOKED
+}
+
 enum NotificationType {
   RSVP_RECEIVED
   TASK_ASSIGNED
@@ -121,8 +133,20 @@ enum NotificationType {
 
 enum UserRole {
   USER
+  SUPPORT
   MODERATOR
   ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum SupportRequestStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
 }
 
 enum VendorApplicationStatus {
@@ -151,34 +175,45 @@ enum VendorReviewStatus {
 }
 
 model User {
-  id              String           @id @default(cuid())
-  email           String           @unique
-  name            String?
-  passwordHash    String
-  role            UserRole         @default(USER)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  projects        ProjectMember[]
-  assignedTasks   Task[]           @relation("TaskAssignee")
-  quoteRequests   QuoteRequest[]
-  auditLogs       AuditLog[]
-  sessions        Session[]
-  passwordResetTokens PasswordResetToken[]
-  vendorFavorites VendorFavorite[]
-  platformSettings PlatformSetting[]
-  managedVendors   Vendor[]                    @relation("VendorManager")
-  vendorClaims     VendorClaim[]
-  reviewedVendorClaims VendorClaim[]             @relation("VendorClaimReviewer")
-  vendorProfileSubmissions VendorProfileSubmission[] @relation("VendorProfileSubmitter")
+  id                               String                    @id @default(cuid())
+  email                            String                    @unique
+  name                             String?
+  passwordHash                     String
+  role                             UserRole                  @default(USER)
+  accountStatus                    AccountStatus             @default(ACTIVE)
+  suspendedAt                      DateTime?
+  suspensionReason                 String?
+  lastLoginAt                      DateTime?
+  lastLoginAgentHash               String?
+  emailEventNotifications          Boolean                   @default(true)
+  weeklyDigestEnabled              Boolean                   @default(false)
+  weeklyDigestLastSentAt           DateTime?
+  weeklyDigestClaimedAt            DateTime?
+  createdAt                        DateTime                  @default(now())
+  updatedAt                        DateTime                  @updatedAt
+  projects                         ProjectMember[]
+  assignedTasks                    Task[]                    @relation("TaskAssignee")
+  quoteRequests                    QuoteRequest[]
+  auditLogs                        AuditLog[]
+  sessions                         Session[]
+  passwordResetTokens              PasswordResetToken[]
+  emailChangeTokens                EmailChangeToken[]
+  vendorFavorites                  VendorFavorite[]
+  platformSettings                 PlatformSetting[]
+  managedVendors                   Vendor[]                  @relation("VendorManager")
+  vendorClaims                     VendorClaim[]
+  reviewedVendorClaims             VendorClaim[]             @relation("VendorClaimReviewer")
+  vendorProfileSubmissions         VendorProfileSubmission[] @relation("VendorProfileSubmitter")
   reviewedVendorProfileSubmissions VendorProfileSubmission[] @relation("VendorProfileReviewer")
-  uploadedPortfolioItems VendorPortfolioItem[]   @relation("PortfolioUploader")
-  uploadedProjectDocuments ProjectDocument[]    @relation("ProjectDocumentUploader")
-  reviewedPortfolioItems VendorPortfolioItem[]   @relation("PortfolioReviewer")
-  authoredVendorReviews VendorReview[]            @relation("VendorReviewAuthor")
-  moderatedVendorReviews VendorReview[]           @relation("VendorReviewModerator")
-  respondedVendorReviews VendorReview[]           @relation("VendorReviewResponder")
-  moderatedVendorReviewResponses VendorReview[]   @relation("VendorReviewResponseModerator")
-  notifications   Notification[]
+  uploadedPortfolioItems           VendorPortfolioItem[]     @relation("PortfolioUploader")
+  uploadedProjectDocuments         ProjectDocument[]         @relation("ProjectDocumentUploader")
+  reviewedPortfolioItems           VendorPortfolioItem[]     @relation("PortfolioReviewer")
+  authoredVendorReviews            VendorReview[]            @relation("VendorReviewAuthor")
+  moderatedVendorReviews           VendorReview[]            @relation("VendorReviewModerator")
+  respondedVendorReviews           VendorReview[]            @relation("VendorReviewResponder")
+  moderatedVendorReviewResponses   VendorReview[]            @relation("VendorReviewResponseModerator")
+  notifications                    Notification[]
+  supportRequests                  SupportRequest[]
 }
 
 model Session {
@@ -193,16 +228,47 @@ model Session {
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([expiresAt])
+}
+
+model EmailChangeToken {
+  id        String    @id @default(cuid())
+  userId    String
+  newEmail  String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model SupportRequest {
+  id             String               @id @default(cuid())
+  userId         String?
+  requesterName  String?
+  requesterEmail String?
+  subject        String
+  message        String
+  status         SupportRequestStatus @default(OPEN)
+  response       String?
+  respondedAt    DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  user           User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, updatedAt])
+  @@index([userId, createdAt])
 }
 
 model RateLimitBucket {
@@ -215,30 +281,31 @@ model RateLimitBucket {
 }
 
 model EventProject {
-  id            String          @id @default(cuid())
-  title         String
-  kind          ProjectKind     @default(WEDDING)
-  date          DateTime?
-  province      String?
-  currency      String          @default("AOA")
-  budgetLimit   Decimal?        @db.Decimal(14, 2)
-  guestEstimate Int?
-  archivedAt    DateTime?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  members       ProjectMember[]
-  events        EventMoment[]
-  tasks         Task[]
-  documents     ProjectDocument[]
-  guests        Guest[]
-  expenses      Expense[]
-  invitations   Invitation[]
-  quoteRequests QuoteRequest[]
-  vendorFavorites ProjectVendorFavorite[]
-  seatingTables SeatingTable[]
-  notifications Notification[]
+  id                   String                  @id @default(cuid())
+  title                String
+  kind                 ProjectKind             @default(WEDDING)
+  date                 DateTime?
+  province             String?
+  currency             String                  @default("AOA")
+  budgetLimit          Decimal?                @db.Decimal(14, 2)
+  guestEstimate        Int?
+  archivedAt           DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  members              ProjectMember[]
+  events               EventMoment[]
+  tasks                Task[]
+  documents            ProjectDocument[]
+  guests               Guest[]
+  guestRequests        GuestRequest[]
+  expenses             Expense[]
+  invitations          Invitation[]
+  quoteRequests        QuoteRequest[]
+  vendorFavorites      ProjectVendorFavorite[]
+  seatingTables        SeatingTable[]
+  notifications        Notification[]
   contributionCampaign ContributionCampaign?
-  summaryShare       EventSummaryShare?
+  summaryShare         EventSummaryShare?
 
   @@map("Wedding")
 }
@@ -277,37 +344,60 @@ model Notification {
 }
 
 model EventMoment {
-  id             String       @id @default(cuid())
-  projectId      String       @map("weddingId")
-  type           EventType
-  title          String
-  startsAt       DateTime?
-  venue          String?
-  address        String?
-  mapsUrl        String?
-  guestNotes     String?
-  showToGuests   Boolean      @default(true)
-  project        EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  rsvps          RSVP[]
+  id           String       @id @default(cuid())
+  projectId    String       @map("weddingId")
+  type         EventType
+  title        String
+  startsAt     DateTime?
+  venue        String?
+  address      String?
+  mapsUrl      String?
+  guestNotes   String?
+  showToGuests Boolean      @default(true)
+  project      EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rsvps        RSVP[]
 
   @@index([projectId, startsAt])
   @@map("WeddingEvent")
 }
 
+model GuestRequest {
+  id            String             @id @default(cuid())
+  projectId     String
+  invitationId  String
+  name          String
+  email         String?
+  phone         String?
+  partySize     Int                @default(1)
+  requestedRsvp RsvpStatus         @default(ACCEPTED)
+  note          String?
+  status        GuestRequestStatus @default(PENDING)
+  guestId       String?            @unique
+  reviewedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  project       EventProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitation    Invitation         @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  guest         Guest?             @relation(fields: [guestId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status, createdAt])
+  @@index([invitationId, email])
+}
+
 model Task {
-  id           String       @id @default(cuid())
-  projectId    String       @map("weddingId")
-  title        String
-  category     String       @default("Planeamento")
-  dueAt        DateTime?
-  assigneeName String?
+  id             String       @id @default(cuid())
+  projectId      String       @map("weddingId")
+  title          String
+  category       String       @default("Planeamento")
+  dueAt          DateTime?
+  assigneeName   String?
   assigneeUserId String?
-  status       TaskStatus   @default(TODO)
-  priority     TaskPriority @default(NORMAL)
-  createdAt    DateTime     @default(now())
-  project      EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assignedTo   User?        @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
-  expenses     Expense[]
+  status         TaskStatus   @default(TODO)
+  priority       TaskPriority @default(NORMAL)
+  createdAt      DateTime     @default(now())
+  project        EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignedTo     User?        @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  expenses       Expense[]
 
   @@index([projectId, status, dueAt])
   @@index([assigneeUserId])
@@ -337,23 +427,25 @@ model ProjectDocument {
 }
 
 model Guest {
-  id             String        @id @default(cuid())
-  projectId      String        @map("weddingId")
-  name           String
-  email          String?
-  phone          String?
-  groupName      String?
-  maxPartySize   Int      @default(1)
-  seatingTableId String?
-  rsvpTokenHash       String?       @unique
-  rsvpTokenCiphertext String?
-  rsvpTokenLegacy     String?       @unique(map: "Guest_rsvpTokenLegacy_key")
-  rsvpTokenPreviousHash String?     @unique
+  id                         String        @id @default(cuid())
+  projectId                  String        @map("weddingId")
+  name                       String
+  email                      String?
+  phone                      String?
+  groupName                  String?
+  maxPartySize               Int           @default(1)
+  seatingTableId             String?
+  rsvpTokenHash              String?       @unique
+  rsvpTokenCiphertext        String?
+  rsvpTokenLegacy            String?       @unique(map: "Guest_rsvpTokenLegacy_key")
+  rsvpTokenPreviousHash      String?       @unique
   rsvpTokenPreviousExpiresAt DateTime?
-  createdAt      DateTime      @default(now())
-  project        EventProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  seatingTable   SeatingTable? @relation(fields: [seatingTableId], references: [id], onDelete: SetNull)
-  rsvps          RSVP[]
+  invitationSentAt           DateTime?
+  createdAt                  DateTime      @default(now())
+  project                    EventProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  seatingTable               SeatingTable? @relation(fields: [seatingTableId], references: [id], onDelete: SetNull)
+  rsvps                      RSVP[]
+  request                    GuestRequest?
 
   @@index([projectId, name])
   @@index([seatingTableId])
@@ -373,22 +465,22 @@ model SeatingTable {
 }
 
 model Expense {
-  id        String        @id @default(cuid())
-  projectId String        @map("weddingId")
-  title     String
-  category  String        @default("Outros")
-  amount    Decimal       @db.Decimal(14, 2)
-  currency  String        @default("AOA")
-  status    ExpenseStatus @default(ESTIMATED)
-  dueAt     DateTime?
-  taskId    String?
-  quoteRequestId String? @unique
-  createdAt DateTime      @default(now())
-  project   EventProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  task      Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  quoteRequest QuoteRequest? @relation(fields: [quoteRequestId], references: [id], onDelete: SetNull)
-  payments   ExpensePayment[]
-  contributions EventContribution[]
+  id             String              @id @default(cuid())
+  projectId      String              @map("weddingId")
+  title          String
+  category       String              @default("Outros")
+  amount         Decimal             @db.Decimal(14, 2)
+  currency       String              @default("AOA")
+  status         ExpenseStatus       @default(ESTIMATED)
+  dueAt          DateTime?
+  taskId         String?
+  quoteRequestId String?             @unique
+  createdAt      DateTime            @default(now())
+  project        EventProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task           Task?               @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  quoteRequest   QuoteRequest?       @relation(fields: [quoteRequestId], references: [id], onDelete: SetNull)
+  payments       ExpensePayment[]
+  contributions  EventContribution[]
 
   @@index([projectId, status])
   @@index([taskId])
@@ -409,78 +501,81 @@ model ExpensePayment {
 }
 
 model EventSummaryShare {
-  id                  String       @id @default(cuid())
-  projectId           String       @unique
-  publicToken         String       @unique
-  enabled             Boolean      @default(false)
-  showFinancial       Boolean      @default(false)
-  showGuestCounts     Boolean      @default(true)
-  showVendors         Boolean      @default(false)
-  showCompletedTasks  Boolean      @default(true)
-  showProgram         Boolean      @default(true)
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-  project             EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id                 String       @id @default(cuid())
+  projectId          String       @unique
+  publicToken        String       @unique
+  enabled            Boolean      @default(false)
+  showFinancial      Boolean      @default(false)
+  showGuestCounts    Boolean      @default(true)
+  showVendors        Boolean      @default(false)
+  showCompletedTasks Boolean      @default(true)
+  showProgram        Boolean      @default(true)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  project            EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([enabled, publicToken])
 }
 
 model ContributionCampaign {
-  id                    String   @id @default(cuid())
-  projectId             String   @unique
-  publicToken           String   @unique
-  enabled               Boolean  @default(false)
-  purpose               String   @default("Apoio ao evento")
-  instructions          String   @default("")
-  proofRequired         Boolean  @default(false)
-  allowExpenseSelection Boolean  @default(false)
-  showProgress          Boolean  @default(false)
-  goalAmount            Decimal? @db.Decimal(14, 2)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  project               EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id                    String              @id @default(cuid())
+  projectId             String              @unique
+  publicToken           String              @unique
+  enabled               Boolean             @default(false)
+  purpose               String              @default("Apoio ao evento")
+  instructions          String              @default("")
+  proofRequired         Boolean             @default(false)
+  allowExpenseSelection Boolean             @default(false)
+  showProgress          Boolean             @default(false)
+  goalAmount            Decimal?            @db.Decimal(14, 2)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  project               EventProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   contributions         EventContribution[]
 
   @@index([enabled, publicToken])
 }
 
 model EventContribution {
-  id              String                     @id @default(cuid())
-  campaignId      String
-  contributorName String?
-  isAnonymous     Boolean                    @default(false)
-  amount          Decimal                    @db.Decimal(14, 2)
-  paymentMethod   ContributionPaymentMethod
-  message         String?
-  proofStorageKey String?
-  status          ContributionStatus         @default(PENDING)
-  reviewNote      String?
-  reviewedAt      DateTime?
-  reviewedBy      String?
-  expenseId       String?
-  createdAt       DateTime                   @default(now())
-  campaign        ContributionCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  expense         Expense?                   @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  id               String                    @id @default(cuid())
+  campaignId       String
+  contributorName  String?
+  contributorEmail String?
+  isAnonymous      Boolean                   @default(false)
+  amount           Decimal                   @db.Decimal(14, 2)
+  paymentMethod    ContributionPaymentMethod
+  message          String?
+  proofStorageKey  String?
+  status           ContributionStatus        @default(PENDING)
+  reviewNote       String?
+  reviewedAt       DateTime?
+  reviewedBy       String?
+  expenseId        String?
+  createdAt        DateTime                  @default(now())
+  campaign         ContributionCampaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  expense          Expense?                  @relation(fields: [expenseId], references: [id], onDelete: SetNull)
 
   @@index([campaignId, status, createdAt])
   @@index([expenseId])
 }
 
 model Invitation {
-  id                 String          @id @default(cuid())
-  projectId          String          @map("weddingId")
-  slug               String          @unique
-  headline           String?
-  message            String?
-  theme              InvitationTheme @default(CLASSIC)
-  publicNotes        String?
-  dressCode          String?
-  supportContactName String?
+  id                  String          @id @default(cuid())
+  projectId           String          @map("weddingId")
+  slug                String          @unique
+  headline            String?
+  message             String?
+  theme               InvitationTheme @default(CLASSIC)
+  publicNotes         String?
+  dressCode           String?
+  supportContactName  String?
   supportContactPhone String?
-  isPublic           Boolean         @default(false)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  project            EventProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  isPublic            Boolean         @default(false)
+  allowGuestRequests  Boolean         @default(false)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  project             EventProject    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  guestRequests       GuestRequest[]
 
   @@index([projectId])
 }
@@ -491,6 +586,7 @@ model RSVP {
   eventId   String?
   eventKey  String       @default("all")
   status    RsvpStatus   @default(PENDING)
+  source    RsvpResponseSource @default(PUBLIC_LINK)
   partySize Int          @default(1)
   note      String?
   updatedAt DateTime     @updatedAt
@@ -502,44 +598,44 @@ model RSVP {
 }
 
 model Vendor {
-  id                String           @id @default(cuid())
-  slug              String           @unique
-  name              String
-  category          String
-  description       String?
-  services          String[]         @default([])
-  serviceAreas      String[]         @default([])
-  galleryUrls       String[]         @default([])
-  province          String?
-  municipality      String?
-  capacityMin       Int?
-  capacityMax       Int?
-  priceFrom         Decimal?         @db.Decimal(14, 2)
-  priceTo           Decimal?         @db.Decimal(14, 2)
-  bookingTerms      String?
-  paymentTerms      String?
-  cancellationTerms String?
-  phone             String?
-  email             String?
-  websiteUrl        String?
-  instagramUrl      String?
-  facebookUrl       String?
-  tiktokUrl         String?
-  ownerUserId       String?
-  status            VendorStatus     @default(PENDING)
-  isDemo            Boolean          @default(false)
-  verifiedAt        DateTime?
-  createdAt         DateTime         @default(now())
-  quoteRequests     QuoteRequest[]
-  favorites         VendorFavorite[]
-  projectFavorites  ProjectVendorFavorite[]
-  applications      VendorApplication[]
-  owner             User?                  @relation("VendorManager", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  claims            VendorClaim[]
-  portfolio         VendorPortfolioItem[]
+  id                 String                    @id @default(cuid())
+  slug               String                    @unique
+  name               String
+  category           String
+  description        String?
+  services           String[]                  @default([])
+  serviceAreas       String[]                  @default([])
+  galleryUrls        String[]                  @default([])
+  province           String?
+  municipality       String?
+  capacityMin        Int?
+  capacityMax        Int?
+  priceFrom          Decimal?                  @db.Decimal(14, 2)
+  priceTo            Decimal?                  @db.Decimal(14, 2)
+  bookingTerms       String?
+  paymentTerms       String?
+  cancellationTerms  String?
+  phone              String?
+  email              String?
+  websiteUrl         String?
+  instagramUrl       String?
+  facebookUrl        String?
+  tiktokUrl          String?
+  ownerUserId        String?
+  status             VendorStatus              @default(PENDING)
+  isDemo             Boolean                   @default(false)
+  verifiedAt         DateTime?
+  createdAt          DateTime                  @default(now())
+  quoteRequests      QuoteRequest[]
+  favorites          VendorFavorite[]
+  projectFavorites   ProjectVendorFavorite[]
+  applications       VendorApplication[]
+  owner              User?                     @relation("VendorManager", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  claims             VendorClaim[]
+  portfolio          VendorPortfolioItem[]
   profileSubmissions VendorProfileSubmission[]
-  reviews           VendorReview[]
-  venues            Venue[]
+  reviews            VendorReview[]
+  venues             Venue[]
 
   @@index([status, category, province])
 }
@@ -597,58 +693,58 @@ model VendorClaim {
 }
 
 model VendorPortfolioItem {
-  id               String             @id @default(cuid())
-  vendorId         String
-  storageKey       String             @unique
-  altText          String
-  sortOrder        Int                @default(0)
-  isCover          Boolean            @default(false)
-  status           VendorContentStatus @default(PENDING)
+  id              String              @id @default(cuid())
+  vendorId        String
+  storageKey      String              @unique
+  altText         String
+  sortOrder       Int                 @default(0)
+  isCover         Boolean             @default(false)
+  status          VendorContentStatus @default(PENDING)
   rejectionReason String?
-  uploadedBy       String?
-  reviewedBy       String?
-  uploadedAt       DateTime           @default(now())
-  reviewedAt       DateTime?
-  vendor           Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  uploader         User?              @relation("PortfolioUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
-  reviewer         User?              @relation("PortfolioReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  uploadedBy      String?
+  reviewedBy      String?
+  uploadedAt      DateTime            @default(now())
+  reviewedAt      DateTime?
+  vendor          Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  uploader        User?               @relation("PortfolioUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+  reviewer        User?               @relation("PortfolioReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
 
   @@index([vendorId, status, sortOrder])
 }
 
 model VendorProfileSubmission {
-  id          String             @id @default(cuid())
+  id          String              @id @default(cuid())
   vendorId    String
   submittedBy String?
   reviewedBy  String?
   payload     Json
   status      VendorContentStatus @default(PENDING)
   reason      String?
-  createdAt   DateTime           @default(now())
+  createdAt   DateTime            @default(now())
   reviewedAt  DateTime?
-  vendor      Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  submitter   User?              @relation("VendorProfileSubmitter", fields: [submittedBy], references: [id], onDelete: SetNull)
-  reviewer    User?              @relation("VendorProfileReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  vendor      Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  submitter   User?               @relation("VendorProfileSubmitter", fields: [submittedBy], references: [id], onDelete: SetNull)
+  reviewer    User?               @relation("VendorProfileReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
 
   @@index([vendorId, status, createdAt])
 }
 
 model VendorApplication {
-  id            String                  @id @default(cuid())
-  businessName  String
-  contactName   String
-  email         String
-  phone         String
-  category      String
-  province      String
-  municipality  String?
-  website       String?
-  message       String
-  status        VendorApplicationStatus @default(NEW)
-  createdAt     DateTime                @default(now())
-  reviewedAt    DateTime?
-  vendorId      String?                 @unique
-  vendor        Vendor?                 @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  id           String                  @id @default(cuid())
+  businessName String
+  contactName  String
+  email        String
+  phone        String
+  category     String
+  province     String
+  municipality String?
+  website      String?
+  message      String
+  status       VendorApplicationStatus @default(NEW)
+  createdAt    DateTime                @default(now())
+  reviewedAt   DateTime?
+  vendorId     String?                 @unique
+  vendor       Vendor?                 @relation(fields: [vendorId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
   @@index([email])
@@ -677,22 +773,22 @@ model ProjectVendorFavorite {
 }
 
 model QuoteRequest {
-  id        String             @id @default(cuid())
-  projectId String             @map("weddingId")
-  userId    String
-  vendorId  String
-  message   String
-  status    QuoteRequestStatus @default(NEW)
+  id             String             @id @default(cuid())
+  projectId      String             @map("weddingId")
+  userId         String
+  vendorId       String
+  message        String
+  status         QuoteRequestStatus @default(NEW)
   vendorViewedAt DateTime?
-  quotedAmount Decimal?         @db.Decimal(14, 2)
-  responseNote String?
-  respondedAt DateTime?
-  createdAt DateTime           @default(now())
-  project   EventProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  vendor    Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  expense   Expense?
-  review    VendorReview?
+  quotedAmount   Decimal?           @db.Decimal(14, 2)
+  responseNote   String?
+  respondedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  project        EventProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor         Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  expense        Expense?
+  review         VendorReview?
 
   @@index([projectId, createdAt])
   @@index([vendorId, status])
@@ -700,8 +796,8 @@ model QuoteRequest {
 }
 
 model VendorReview {
-  id                  String             @id @default(cuid())
-  quoteRequestId      String             @unique
+  id                  String               @id @default(cuid())
+  quoteRequestId      String               @unique
   vendorId            String
   reviewerId          String?
   rating              Int
@@ -709,8 +805,8 @@ model VendorReview {
   punctualityRating   Int
   qualityRating       Int
   comment             String?
-  isAnonymous         Boolean            @default(true)
-  status              VendorReviewStatus @default(PENDING)
+  isAnonymous         Boolean              @default(true)
+  status              VendorReviewStatus   @default(PENDING)
   rejectionReason     String?
   reviewedAt          DateTime?
   reviewedBy          String?
@@ -721,14 +817,14 @@ model VendorReview {
   responseAt          DateTime?
   responseReviewedAt  DateTime?
   responseReviewedBy  String?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
-  quoteRequest        QuoteRequest       @relation(fields: [quoteRequestId], references: [id], onDelete: Cascade)
-  vendor              Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  reviewer            User?              @relation("VendorReviewAuthor", fields: [reviewerId], references: [id], onDelete: SetNull)
-  moderator           User?              @relation("VendorReviewModerator", fields: [reviewedBy], references: [id], onDelete: SetNull)
-  responder           User?              @relation("VendorReviewResponder", fields: [responseBy], references: [id], onDelete: SetNull)
-  responseModerator   User?              @relation("VendorReviewResponseModerator", fields: [responseReviewedBy], references: [id], onDelete: SetNull)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  quoteRequest        QuoteRequest         @relation(fields: [quoteRequestId], references: [id], onDelete: Cascade)
+  vendor              Vendor               @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  reviewer            User?                @relation("VendorReviewAuthor", fields: [reviewerId], references: [id], onDelete: SetNull)
+  moderator           User?                @relation("VendorReviewModerator", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  responder           User?                @relation("VendorReviewResponder", fields: [responseBy], references: [id], onDelete: SetNull)
+  responseModerator   User?                @relation("VendorReviewResponseModerator", fields: [responseReviewedBy], references: [id], onDelete: SetNull)
 
   @@index([vendorId, status, createdAt])
   @@index([responseStatus, createdAt])

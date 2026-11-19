@@ -59,6 +59,7 @@ Executa os comandos com a `DATABASE_URL` do ambiente de produção e só depois 
 ## Documentação
 
 - [Deploy e variáveis do Coolify](docs/deploy-coolify.md)
+- [Métricas do GA4 no backoffice](docs/admin-analytics.md)
 - [Arquitectura](docs/architecture.md)
 - [Estado do projecto](docs/progress.md)
 - [Preparação para produção](docs/production-readiness.md)

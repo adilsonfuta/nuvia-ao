@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { luandaDateInput, luandaDateToIso } from "../lib/time";
+import { ListPagination } from "../lib/list-pagination";
 
 type ProjectMember = { id: string; name: string | null; email: string };
 export type TaskUpdate = {
@@ -99,6 +100,8 @@ export function TaskBoard({
   const [category, setCategory] = useState("");
   const [priority, setPriority] = useState("");
   const [dueFilter, setDueFilter] = useState("all");
+  const [lanePages, setLanePages] = useState<Record<string, number>>({});
+  const [lanePageSizes, setLanePageSizes] = useState<Record<string, number>>({});
   const [editing, setEditing] = useState<BoardTask | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editCategory, setEditCategory] = useState("");
@@ -287,6 +290,10 @@ export function TaskBoard({
           const items = filtered.filter(
             (task) => task.status === column.status,
           );
+          const pageSize = lanePageSizes[column.status] ?? 10;
+          const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+          const page = Math.min(lanePages[column.status] ?? 1, totalPages);
+          const displayedItems = items.slice((page - 1) * pageSize, page * pageSize);
           return (
             <section
               className="task-board-column"
@@ -356,7 +363,7 @@ export function TaskBoard({
                 </form>
               )}
               <div className="task-board-cards">
-                {items.map((task) => {
+                {displayedItems.map((task) => {
                   const due = deadline(task, today);
                   return (
                     <article
@@ -436,6 +443,7 @@ export function TaskBoard({
                   </p>
                 )}
               </div>
+              <ListPagination page={page} pageSize={pageSize} total={items.length} label="tarefas" onPageChange={(next) => setLanePages((current) => ({ ...current, [column.status]: next }))} onPageSizeChange={(size) => { setLanePageSizes((current) => ({ ...current, [column.status]: size })); setLanePages((current) => ({ ...current, [column.status]: 1 })); }} />
             </section>
           );
         })}
