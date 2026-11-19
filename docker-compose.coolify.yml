@@ -52,6 +52,7 @@ services:
       GA4_SERVICE_ACCOUNT_PRIVATE_KEY: ${GA4_SERVICE_ACCOUNT_PRIVATE_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      RESEND_ENABLED: ${RESEND_ENABLED:-false}
       PORTFOLIO_STORAGE_DIR: /app/data/vendor-portfolio
       PRIVATE_UPLOAD_STORAGE_DIR: /app/data/private-contribution-proofs
       PROJECT_DOCUMENT_STORAGE_DIR: /app/data/private-project-documents
