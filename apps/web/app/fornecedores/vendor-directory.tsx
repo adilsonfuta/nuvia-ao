@@ -5,7 +5,7 @@ import { api } from '../lib/api';
 import { formatAOA } from '../lib/format';
 import { ListPagination } from '../lib/list-pagination';
 
-type Vendor = { id: string; slug: string; name: string; category: string; description: string | null; province: string | null; municipality: string | null; priceFrom: string | null; priceTo: string | null; verifiedAt: string | null; isDemo: boolean };
+type Vendor = { id: string; slug: string; name: string; category: string; description: string | null; galleryUrls: string[]; portfolio: { id: string; altText: string; isCover: boolean }[]; province: string | null; municipality: string | null; priceFrom: string | null; priceTo: string | null; verifiedAt: string | null; isDemo: boolean };
 const defaultCategories = ['Catering', 'Decoração', 'Fotografia e vídeo', 'Música e DJ', 'Beleza', 'Transportes', 'Bolos e doces', 'Organização', 'Espaços'];
 const defaultProvinces = ['Bengo', 'Benguela', 'Bié', 'Cabinda', 'Cuando', 'Cubango', 'Cuanza Norte', 'Cuanza Sul', 'Cunene', 'Huambo', 'Huíla', 'Icolo e Bengo', 'Luanda', 'Lunda Norte', 'Lunda Sul', 'Malanje', 'Moxico', 'Moxico Leste', 'Namibe', 'Uíge', 'Zaire'];
 
@@ -157,17 +157,30 @@ export default function VendorDirectory() {
       {favoriteNotice && <p className="quote-notice" role="status">{favoriteNotice}</p>}
       <div className="directory-results-heading"><h2>Resultados</h2>{!loading && <span>{total} {total === 1 ? 'perfil' : 'perfis'}</span>}</div>
       {projectId && <p className="vendor-project-context-note">Estás a explorar fornecedores para um evento específico. Os favoritos guardados aqui ficam associados a esse evento.</p>}
-      {loading ? <p className="empty-copy">A pesquisar perfis…</p> : vendors.length ? <><div className="catalog-grid">{vendors.map(vendor => <article className="vendor-card" key={vendor.id}>
-        <span className="vendor-monogram" aria-hidden="true">{vendor.name.slice(0, 1)}</span>
-        <small>{vendor.category}</small>
-        {vendor.isDemo && <span className="demo-badge">Demonstração</span>}
-        {!vendor.isDemo && vendor.verifiedAt && <span className="verified-badge">Perfil revisto</span>}
-        <h3>{vendor.name}</h3>
-        <p>{vendor.description}</p>
-        <span className="vendor-location">{[vendor.municipality, vendor.province].filter(Boolean).join(', ') || 'Localização por confirmar'}</span>
-        {vendor.priceFrom && <span className="vendor-price">A partir de {formatAOA(vendor.priceFrom)}{vendor.priceTo ? ` – ${formatAOA(vendor.priceTo)}` : ''}</span>}
-        <div className="vendor-card-actions"><a href={`/fornecedores/${vendor.slug}?${new URLSearchParams({ ...(projectId ? { projectId } : {}), returnTo: directoryReturnPath }).toString()}`}>Ver perfil <span aria-hidden="true">→</span></a><button type="button" className={favoriteIds.has(vendor.id) ? 'favorite-button saved' : 'favorite-button'} aria-pressed={favoriteIds.has(vendor.id)} onClick={() => void toggleFavorite(vendor.id)}>{favoriteIds.has(vendor.id) ? 'Guardado' : 'Guardar'}</button></div>
-      </article>)}</div><ListPagination page={page} pageSize={pageSize} total={total} label="fornecedores" onPageChange={(next) => { setPage(next); void runSearch({ term, category, province }, next); }} onPageSizeChange={(size) => { setPageSize(size); setPage(1); void runSearch({ term, category, province }, 1, size); }} /></> : <section className="catalog-empty"><span aria-hidden="true">⌕</span><h2>{term || category || province ? 'Não encontrámos perfis com estes filtros.' : 'Ainda não há perfis publicados.'}</h2><p>{term || category || province ? 'Experimenta outra categoria, província ou pesquisa.' : 'Estamos a preparar o directório. Quando houver perfis publicados, poderás consultá-los aqui.'}</p>{(term || category || province) && <button className="button button-outline" type="button" onClick={clearFilters}>Limpar pesquisa</button>}</section>}
+      {loading ? <p className="empty-copy">A pesquisar perfis…</p> : vendors.length ? <><div className="catalog-grid">{vendors.map(vendor => {
+        const cover = vendor.portfolio?.[0]
+          ? { src: `/api/v1/vendor-portfolio/${vendor.portfolio[0].id}/image`, alt: vendor.portfolio[0].altText }
+          : vendor.galleryUrls?.[0]
+            ? { src: vendor.galleryUrls[0], alt: `Trabalho de ${vendor.name}` }
+            : null;
+        const profileHref = `/fornecedores/${vendor.slug}?${new URLSearchParams({ ...(projectId ? { projectId } : {}), returnTo: directoryReturnPath }).toString()}`;
+        return <article className="vendor-card" key={vendor.id}>
+          <div className="vendor-card-media">
+            <a className="vendor-card-image" href={profileHref} aria-label={`Ver perfil de ${vendor.name}`}>
+              {cover ? <img src={cover.src} alt={cover.alt} loading="lazy" referrerPolicy={cover.src.startsWith('http') ? 'no-referrer' : undefined} /> : <span className="vendor-card-placeholder" aria-hidden="true">{vendor.name.slice(0, 1)}</span>}
+              {vendor.isDemo ? <span className="demo-badge">Demonstração</span> : vendor.verifiedAt ? <span className="verified-badge">Perfil revisto</span> : null}
+            </a>
+            <button type="button" className={favoriteIds.has(vendor.id) ? 'favorite-button saved' : 'favorite-button'} aria-label={favoriteIds.has(vendor.id) ? `Remover ${vendor.name} dos favoritos` : `Guardar ${vendor.name} nos favoritos`} aria-pressed={favoriteIds.has(vendor.id)} onClick={() => void toggleFavorite(vendor.id)}>{favoriteIds.has(vendor.id) ? '♥' : '♡'}</button>
+          </div>
+          <div className="vendor-card-body">
+            <p className="vendor-card-category">{vendor.category}</p>
+            <h3><a href={profileHref}>{vendor.name}</a></h3>
+            {vendor.description && <p className="vendor-card-description">{vendor.description}</p>}
+            <div className="vendor-card-meta"><span className="vendor-location">{[vendor.municipality, vendor.province].filter(Boolean).join(', ') || 'Localização por confirmar'}</span>{vendor.priceFrom && <span className="vendor-price">Desde {formatAOA(vendor.priceFrom)}{vendor.priceTo ? ` – ${formatAOA(vendor.priceTo)}` : ''}</span>}</div>
+            <div className="vendor-card-actions"><a href={profileHref}>Ver perfil <span aria-hidden="true">→</span></a></div>
+          </div>
+        </article>;
+      })}</div><ListPagination page={page} pageSize={pageSize} total={total} label="fornecedores" onPageChange={(next) => { setPage(next); void runSearch({ term, category, province }, next); }} onPageSizeChange={(size) => { setPageSize(size); setPage(1); void runSearch({ term, category, province }, 1, size); }} /></> : <section className="catalog-empty"><span aria-hidden="true">⌕</span><h2>{term || category || province ? 'Não encontrámos perfis com estes filtros.' : 'Ainda não há perfis publicados.'}</h2><p>{term || category || province ? 'Experimenta outra categoria, província ou pesquisa.' : 'Estamos a preparar o directório. Quando houver perfis publicados, poderás consultá-los aqui.'}</p>{(term || category || province) && <button className="button button-outline" type="button" onClick={clearFilters}>Limpar pesquisa</button>}</section>}
     </div>
     <aside className="directory-disclosure"><strong>Sobre os pedidos de informação</strong><p>Os pedidos ficam guardados na tua conta. Ainda não são enviados ao fornecedor pela plataforma. Perfis identificados como demonstração são fictícios e não representam negócios reais.</p></aside>
   </>;

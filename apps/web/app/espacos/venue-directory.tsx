@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 import { formatAOA } from "../lib/format";
 import { ListPagination } from "../lib/list-pagination";
 
-type Venue = { id: string; slug: string; name: string; venueType: string; description: string | null; province: string | null; municipality: string | null; address: string | null; mapsUrl: string | null; capacityMin: number | null; capacityMax: number | null; priceFrom: number | string | null; priceTo: number | string | null; galleryUrls: string[]; phone: string | null; email: string | null; websiteUrl: string | null; amenities: string[]; eventTypes: string[]; verifiedAt: string | null };
+type Venue = { id: string; slug: string; name: string; venueType: string; description: string | null; province: string | null; municipality: string | null; address: string | null; mapsUrl: string | null; latitude: number | null; longitude: number | null; capacityMin: number | null; capacityMax: number | null; priceFrom: number | string | null; priceTo: number | string | null; galleryUrls: string[]; phone: string | null; email: string | null; websiteUrl: string | null; amenities: string[]; eventTypes: string[]; verifiedAt: string | null; isDemo: boolean };
 type VenueList = { items: Venue[]; total: number; status: string; page: number; pageSize: number; totalPages: number };
 const provinces = ["Bengo", "Benguela", "Bié", "Cabinda", "Cuando", "Cubango", "Cuanza Norte", "Cuanza Sul", "Cunene", "Huambo", "Huíla", "Icolo e Bengo", "Luanda", "Lunda Norte", "Lunda Sul", "Malanje", "Moxico", "Moxico Leste", "Namibe", "Uíge", "Zaire"];
 
@@ -57,20 +57,21 @@ export default function VenueDirectory() {
     <form className="venue-filters" onSubmit={submit}>
       <label>Pesquisar<input value={search} onChange={event => setSearch(event.target.value)} placeholder="Nome ou município" /></label>
       <label>Província<select value={province} onChange={event => setProvince(event.target.value)}><option value="">Todas</option>{provinces.map(item => <option key={item}>{item}</option>)}</select></label>
-      <label>Tipo<select value={venueType} onChange={event => setVenueType(event.target.value)}><option value="">Todos os tipos</option><option>Quinta</option><option>Salão de festas</option><option>Hotel</option><option>Restaurante</option><option>Praia ou espaço ao ar livre</option><option>Outro</option></select></label>
+      <label>Tipo<select value={venueType} onChange={event => setVenueType(event.target.value)}><option value="">Todos os tipos</option><option>Quinta</option><option>Salão de festas</option><option>Salão de eventos</option><option>Centro de eventos</option><option>Espaço de eventos</option><option>Hotel</option><option>Restaurante</option><option>Praia ou espaço ao ar livre</option><option>Outro</option></select></label>
       <label>Capacidade mínima<select value={capacity} onChange={event => setCapacity(event.target.value)}><option value="">Qualquer capacidade</option><option value="100">100 pessoas</option><option value="250">250 pessoas</option><option value="500">500 pessoas</option></select></label>
       <button className="button button-primary">Pesquisar</button>
     </form>
     {error ? <div className="venue-empty" role="alert"><h2>Não foi possível carregar o catálogo</h2><p>{error}</p><button className="button button-outline" onClick={() => void load({ search, province, venueType, capacity })}>Tentar novamente</button></div> : loading && !data ? <p className="venue-loading" role="status">A carregar espaços…</p> : data?.items.length ? <>
-      <div className="venue-results-heading"><strong>{data.total} {data.total === 1 ? "espaço publicado" : "espaços publicados"}</strong><small>Dados revistos; confirma disponibilidade e condições antes de reservar.</small></div>
+      <div className="venue-results-heading"><strong>{data.total} {data.total === 1 ? "espaço publicado" : "espaços publicados"}</strong><small>Confirma sempre disponibilidade e condições directamente com o responsável.</small></div>
       <div className="venue-grid">{data.items.map(venue => <article className="venue-card" key={venue.id}>
         <Link className="venue-card-image" href={`/espacos/${venue.slug}`} aria-label={`Ver ${venue.name}`}>
-          {venue.galleryUrls[0] ? <img src={venue.galleryUrls[0]} alt={`Espaço ${venue.name}`} loading="lazy" referrerPolicy="no-referrer" /> : <span aria-hidden="true">⌂</span>}
-          <span className="venue-verified">Dados revistos</span>
+          {venue.galleryUrls[0] ? <img src={venue.galleryUrls[0]} alt={venue.isDemo ? `Ilustração conceptual para o perfil demonstrativo de ${venue.name}; não é uma fotografia do estabelecimento` : `Espaço ${venue.name}`} loading="lazy" referrerPolicy="no-referrer" /> : <span aria-hidden="true">⌂</span>}
+          <span className={venue.isDemo ? "venue-verified venue-demo-badge" : "venue-verified"}>{venue.isDemo ? "Perfil demonstrativo" : "Dados revistos"}</span>
+          {venue.isDemo && <span className="venue-concept-image">Imagem conceptual</span>}
         </Link>
-        <div className="venue-card-body"><p className="eyebrow">{venue.venueType}</p><h2><Link href={`/espacos/${venue.slug}`}>{venue.name}</Link></h2><p className="venue-location">{[venue.municipality, venue.province].filter(Boolean).join(" · ")}</p>
-          <div className="venue-card-facts">{venue.capacityMax && <span>Até {venue.capacityMax.toLocaleString("pt-AO")} pessoas</span>}<span>{venue.priceFrom != null || venue.priceTo != null ? `${formatAOA(venue.priceFrom)} – ${formatAOA(venue.priceTo)}` : "Preço sob consulta"}</span></div>
-          <Link className="venue-card-link" href={`/espacos/${venue.slug}`}>Ver espaço e contactos <span aria-hidden="true">→</span></Link>
+        <div className="venue-card-body"><p className="eyebrow">{venue.venueType}</p><h2><Link href={`/espacos/${venue.slug}`}>{venue.name}</Link></h2><p className="venue-location">{[venue.municipality, venue.province].filter(Boolean).join(" · ") || (venue.isDemo ? "Localização fictícia" : "Localização por confirmar")}</p>
+          <div className="venue-card-facts">{venue.capacityMax && !venue.isDemo && <span>Até {venue.capacityMax.toLocaleString("pt-AO")} pessoas</span>}<span>{venue.priceFrom != null || venue.priceTo != null ? `${formatAOA(venue.priceFrom)} – ${formatAOA(venue.priceTo)}` : venue.isDemo ? "Preço por confirmar" : "Preço sob consulta"}</span></div>
+          <Link className="venue-card-link" href={`/espacos/${venue.slug}`}>{venue.isDemo ? "Ver perfil demonstrativo" : "Ver espaço e contactos"} <span aria-hidden="true">→</span></Link>
         </div>
       </article>)}</div>
       <ListPagination page={data.page} pageSize={data.pageSize} total={data.total} label="espaços" onPageChange={(next) => { setPage(next); void load({ search, province, venueType, capacity }, next); }} onPageSizeChange={(size) => { setPageSize(size); setPage(1); void load({ search, province, venueType, capacity }, 1, size); }} />

@@ -1,14 +1,18 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { api } from '../lib/api';
 import { ListPagination, useListPage } from '../lib/list-pagination';
+import { GUIDE_COVERS } from './guide-data';
 
 type Guide = {
   slug: string;
   title: string;
   summary: string;
   category: string;
+  readingMinutes: number;
+  coverImage: string | null;
   reviewedAt: string | null;
   isDemo: boolean;
 };
@@ -108,19 +112,21 @@ export default function GuidesPage() {
 
           {filteredGuides.length ? (
             <><div className="guides-grid">
-              {displayedGuides.map((guide, index) => (
-                <a className={`guide-card guide-card-tone-${index % 3}`} href={`/guias/${guide.slug}`} key={guide.slug}>
+              {displayedGuides.map((guide, index) => {
+                const cover = guide.coverImage || GUIDE_COVERS[guide.slug]?.src;
+                return <a className={`guide-card guide-card-tone-${index % 3}`} href={`/guias/${guide.slug}`} key={guide.slug}>
+                  {cover && <div className="guide-card-image"><Image src={cover} alt={GUIDE_COVERS[guide.slug]?.alt || guide.title} width={1200} height={675} unoptimized={cover.startsWith("/api/v1/")} sizes="(max-width: 600px) 100vw, (max-width: 1000px) 50vw, 33vw" /></div>}
                   <div className="guide-card-topline"><span>{guide.category}</span><span className="guide-card-arrow" aria-hidden="true">↗</span></div>
                   <div className="guide-card-content">
                     <h3>{guide.title}</h3>
                     <p>{guide.summary}</p>
                   </div>
                   <div className="guide-card-footer">
-                    <span>{guide.isDemo ? 'Conteúdo de demonstração' : formatReviewDate(guide.reviewedAt) ? `Revisto · ${formatReviewDate(guide.reviewedAt)}` : 'Guia Nuvia'}</span>
+                    <span>{guide.readingMinutes} min de leitura{guide.reviewedAt ? ` · Revisto ${formatReviewDate(guide.reviewedAt)}` : ''}</span>
                     <strong>Ler guia <span aria-hidden="true">→</span></strong>
                   </div>
-                </a>
-              ))}
+                </a>;
+              })}
             </div>
             <ListPagination page={page} pageSize={pageSize} total={filteredGuides.length} label="guias" onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} /></>
           ) : (

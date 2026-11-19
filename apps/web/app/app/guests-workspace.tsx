@@ -22,6 +22,7 @@ type GuestRequest = {
   name: string;
   email: string | null;
   phone: string | null;
+  contactChannels: ("WHATSAPP" | "PHONE" | "EMAIL")[];
   partySize: number;
   requestedRsvp: "ACCEPTED" | "DECLINED";
   note: string | null;
@@ -74,6 +75,11 @@ const statusLabel = (status: string) =>
     : status === "DECLINED"
       ? "Não vai"
       : "Sem resposta";
+const guestContactChannelLabel: Record<GuestRequest["contactChannels"][number], string> = {
+  WHATSAPP: "WhatsApp",
+  PHONE: "Chamada/SMS",
+  EMAIL: "Email",
+};
 const escapeCsv = (value: string | number) => {
   let text = String(value ?? "");
   if (/^[=+@\-\t\r]/.test(text)) text = `'${text}`;
@@ -1128,7 +1134,15 @@ function GuestRequestsPanel({ projectId, onRefresh, onNotice, onError }: {
       {requests.length ? <div className="guest-request-list">
         {requests.map((request) => <article className="guest-request-card" key={request.id}>
           <div className="guest-request-main"><div className="guest-request-title"><strong>{request.name}</strong><span className={`guest-request-status ${request.status.toLowerCase()}`}>{request.status === "PENDING" ? "Por analisar" : request.status === "APPROVED" ? "Aprovado" : request.status === "REJECTED" ? "Recusado" : "Revogado"}</span></div>
-            <p>{request.email || request.phone || "Sem contacto"} · {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(request.createdAt))}</p>
+            <p>{request.contactChannels?.length ? request.contactChannels.map((channel) => guestContactChannelLabel[channel]).join(" · ") : "Preferência de contacto não indicada"} · {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(request.createdAt))}</p>
+            {(request.email || request.phone) && <div className="guest-request-contact-details">
+              {request.contactChannels?.includes("EMAIL") && request.email && <a href={`mailto:${request.email}`}>{request.email}</a>}
+              {request.contactChannels?.includes("PHONE") && request.phone && <a href={`tel:${request.phone}`}>{request.phone}</a>}
+              {request.contactChannels?.includes("WHATSAPP") && request.phone && (() => {
+                const number = whatsAppNumber(request.phone);
+                return number ? <a href={`https://wa.me/${number}?text=${encodeURIComponent(`Olá ${request.name}, estamos a dar seguimento ao teu pedido para participar no evento.`)}`} target="_blank" rel="noreferrer">Abrir conversa no WhatsApp ↗</a> : <span>{request.phone}</span>;
+              })()}
+            </div>}
             <small>{request.requestedRsvp === "ACCEPTED" ? `Pretende participar${request.partySize > 1 ? ` com ${request.partySize - 1} acompanhante(s)` : ""}.` : "Indicou que não poderá estar presente."}{request.note ? ` Nota: ${request.note}` : ""}</small>
           </div>
           <div className="guest-request-actions">

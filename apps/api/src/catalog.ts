@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from "@nestjs/common";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
@@ -14,6 +15,9 @@ import { IsOptional, IsString, MinLength, MaxLength } from "class-validator";
 import { DatabaseService } from "./database";
 import { EmailService } from "./email";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
+import type { Response } from "express";
+import { sendGuideCover } from "./guide-covers";
+import { sendVenuePhoto } from "./venue-photos";
 
 class CreateQuoteDto {
   @IsString() projectId!: string;
@@ -72,6 +76,13 @@ export class VendorsController {
         name: true,
         category: true,
         description: true,
+        galleryUrls: true,
+        portfolio: {
+          where: { status: "APPROVED" as const },
+          select: { id: true, altText: true, sortOrder: true, isCover: true },
+          orderBy: [{ isCover: "desc" as const }, { sortOrder: "asc" as const }, { uploadedAt: "asc" as const }],
+          take: 1,
+        },
         province: true,
         municipality: true,
         priceFrom: true,
@@ -291,6 +302,9 @@ export class VendorFavoritesController {
 @Controller("guides")
 export class GuidesController {
   constructor(private readonly db: DatabaseService) {}
+  @Get("covers/:id/image") cover(@Param("id") id: string, @Res() response: Response) {
+    return sendGuideCover(id, response);
+  }
   @Get() list(@Query("category") category?: string) {
     return this.db.guideArticle.findMany({
       where: { status: "PUBLISHED", ...(category ? { category } : {}) },
@@ -299,10 +313,12 @@ export class GuidesController {
         title: true,
         summary: true,
         category: true,
+        readingMinutes: true,
+        coverImage: true,
         reviewedAt: true,
         isDemo: true,
       },
-      orderBy: { reviewedAt: "desc" },
+      orderBy: [{ sortOrder: "asc" }, { reviewedAt: "desc" }, { createdAt: "asc" }],
     });
   }
   @Get(":slug") async detail(@Param("slug") slug: string) {
@@ -468,6 +484,9 @@ export class LegalController {
 @Controller("venues")
 export class VenuesController {
   constructor(private readonly db: DatabaseService) {}
+  @Get("photos/:id/image") photo(@Param("id") id: string, @Res() response: Response) {
+    return sendVenuePhoto(id, response);
+  }
   @Get() async list(
     @Query("search") search?: string,
     @Query("province") province?: string,
@@ -493,7 +512,7 @@ export class VenuesController {
     const requestedPageSize = /^\d+$/.test(pageSizeRaw ?? "") ? Number(pageSizeRaw) : 20;
     const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
     const [items, total] = await Promise.all([
-      this.db.venue.findMany({ where, select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, amenities: true, eventTypes: true, verifiedAt: true }, orderBy: [{ verifiedAt: "desc" }, { name: "asc" }], skip: (page - 1) * pageSize, take: pageSize }),
+      this.db.venue.findMany({ where, select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, latitude: true, longitude: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, amenities: true, eventTypes: true, verifiedAt: true, isDemo: true }, orderBy: [{ isDemo: "asc" }, { verifiedAt: "desc" }, { name: "asc" }], skip: (page - 1) * pageSize, take: pageSize }),
       this.db.venue.count({ where }),
     ]);
     return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)), status: total ? "PUBLICADO" : "SEM_RESULTADOS" };
@@ -501,7 +520,7 @@ export class VenuesController {
   @Get(":slug") async detail(@Param("slug") slug: string) {
     const venue = await this.db.venue.findFirst({
       where: { slug, status: "PUBLISHED" },
-      select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, amenities: true, eventTypes: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, bookingTerms: true, paymentTerms: true, cancellationTerms: true, verifiedAt: true },
+      select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, latitude: true, longitude: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, amenities: true, eventTypes: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, bookingTerms: true, paymentTerms: true, cancellationTerms: true, verifiedAt: true, isDemo: true },
     });
     if (!venue) throw new NotFoundException("Espaço não encontrado.");
     return venue;

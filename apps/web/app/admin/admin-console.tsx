@@ -1,5 +1,5 @@
 "use client";
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "../lib/api";
 import { ListPagination, PaginatedList, slicePage } from "../lib/list-pagination";
@@ -7,6 +7,9 @@ import { formatAOA } from "../lib/format";
 import { VendorModerationWorkspace } from "./vendor-moderation-workspace";
 import SupportStaffWorkspace from "../suporte/gestao/support-staff-workspace";
 import AnalyticsPanel from "./analytics-panel";
+import { GUIDE_COVERS } from "../guias/guide-data";
+import { GuidePreview } from "./guide-preview";
+import { extractMapCoordinates, openStreetMapEmbedUrl, openStreetMapUrl } from "../lib/venue-map";
 
 type Vendor = {
   id: string;
@@ -35,11 +38,11 @@ type Vendor = {
 };
 type Venue = {
   id: string; slug: string; name: string; venueType: string; description: string | null;
-  province: string | null; municipality: string | null; address: string | null; mapsUrl: string | null;
+  province: string | null; municipality: string | null; address: string | null; mapsUrl: string | null; latitude: number | null; longitude: number | null;
   capacityMin: number | null; capacityMax: number | null; priceFrom: string | null; priceTo: string | null;
   amenities: string[]; eventTypes: string[]; galleryUrls: string[]; phone: string | null; email: string | null;
   websiteUrl: string | null; bookingTerms: string | null; paymentTerms: string | null; cancellationTerms: string | null;
-  status: "DRAFT" | "PENDING" | "PUBLISHED" | "SUSPENDED"; verifiedAt: string | null; createdAt: string; updatedAt: string; vendorId: string | null;
+  status: "DRAFT" | "PENDING" | "PUBLISHED" | "SUSPENDED"; isDemo: boolean; verifiedAt: string | null; createdAt: string; updatedAt: string; vendorId: string | null;
 };
 type Guide = {
   id: string;
@@ -48,6 +51,12 @@ type Guide = {
   status: string;
   summary: string;
   category: string;
+  body: string;
+  readingMinutes: number;
+  sortOrder: number;
+  coverImage: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
 };
 type Source = {
   id: string;
@@ -112,6 +121,7 @@ const angolaProvinces = [
   "Uíge",
   "Zaire",
 ];
+const guideCoverOptions = Object.entries(GUIDE_COVERS).map(([slug, cover]) => ({ slug, ...cover }));
 
 export default function AdminConsole() {
   const [adminListPage, setAdminListPage] = useState(1);
@@ -157,6 +167,10 @@ export default function AdminConsole() {
   const [editingVendorId, setEditingVendorId] = useState("");
   const [venueStatusFilter, setVenueStatusFilter] = useState("ALL");
   const [venueSearch, setVenueSearch] = useState("");
+  const [venueListProvinceFilter, setVenueListProvinceFilter] = useState("");
+  const [venueListTypeFilter, setVenueListTypeFilter] = useState("");
+  const [venueListDemoFilter, setVenueListDemoFilter] = useState("ALL");
+  const [venueIsDemo, setVenueIsDemo] = useState(false);
   const [editingVenueId, setEditingVenueId] = useState("");
   const [showVenueForm, setShowVenueForm] = useState(false);
   const [venueName, setVenueName] = useState("");
@@ -167,6 +181,9 @@ export default function AdminConsole() {
   const [venueMunicipality, setVenueMunicipality] = useState("");
   const [venueAddress, setVenueAddress] = useState("");
   const [venueMapsUrl, setVenueMapsUrl] = useState("");
+  const [venueLatitude, setVenueLatitude] = useState("");
+  const [venueLongitude, setVenueLongitude] = useState("");
+  const venueMapLinkCoordinates = extractMapCoordinates(venueMapsUrl);
   const [venueCapacityMin, setVenueCapacityMin] = useState("");
   const [venueCapacityMax, setVenueCapacityMax] = useState("");
   const [venuePriceFrom, setVenuePriceFrom] = useState("");
@@ -174,6 +191,7 @@ export default function AdminConsole() {
   const [venueAmenities, setVenueAmenities] = useState("");
   const [venueEventTypes, setVenueEventTypes] = useState("");
   const [venueGalleryUrls, setVenueGalleryUrls] = useState("");
+  const [venuePhotoUploading, setVenuePhotoUploading] = useState(false);
   const [venuePhone, setVenuePhone] = useState("");
   const [venueEmail, setVenueEmail] = useState("");
   const [venueWebsite, setVenueWebsite] = useState("");
@@ -207,6 +225,16 @@ export default function AdminConsole() {
   const [guideSummary, setGuideSummary] = useState("");
   const [guideCategory, setGuideCategory] = useState("Planeamento");
   const [guideBody, setGuideBody] = useState("");
+  const [guideReadingMinutes, setGuideReadingMinutes] = useState("5");
+  const [guideSortOrder, setGuideSortOrder] = useState("100");
+  const [guideCoverImage, setGuideCoverImage] = useState("");
+  const [editingGuideId, setEditingGuideId] = useState("");
+  const [guideSearch, setGuideSearch] = useState("");
+  const [guideStatusFilter, setGuideStatusFilter] = useState("ALL");
+  const [guideListPage, setGuideListPage] = useState(1);
+  const [guideListPageSize, setGuideListPageSize] = useState(10);
+  const [guideEditorView, setGuideEditorView] = useState<"edit" | "preview">("edit");
+  const [guideCoverUploading, setGuideCoverUploading] = useState(false);
   const [sourceTitle, setSourceTitle] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceId, setSourceId] = useState("");
@@ -465,19 +493,50 @@ export default function AdminConsole() {
   }
   function resetVenueForm() {
     setShowVenueForm(false); setEditingVenueId(""); setVenueName(""); setVenueSlug(""); setVenueType("Quinta");
-    setVenueDescription(""); setVenueProvince(""); setVenueMunicipality(""); setVenueAddress(""); setVenueMapsUrl("");
+    setVenueDescription(""); setVenueProvince(""); setVenueMunicipality(""); setVenueAddress(""); setVenueMapsUrl(""); setVenueLatitude(""); setVenueLongitude("");
     setVenueCapacityMin(""); setVenueCapacityMax(""); setVenuePriceFrom(""); setVenuePriceTo(""); setVenueAmenities("");
     setVenueEventTypes(""); setVenueGalleryUrls(""); setVenuePhone(""); setVenueEmail(""); setVenueWebsite("");
     setVenueBookingTerms(""); setVenuePaymentTerms(""); setVenueCancellationTerms(""); setVenueVendorId("");
+    setVenueIsDemo(false);
   }
   function editVenue(venue: Venue) {
     setEditingVenueId(venue.id); setShowVenueForm(true); setVenueName(venue.name); setVenueSlug(venue.slug); setVenueType(venue.venueType);
     setVenueDescription(venue.description ?? ""); setVenueProvince(venue.province ?? ""); setVenueMunicipality(venue.municipality ?? "");
-    setVenueAddress(venue.address ?? ""); setVenueMapsUrl(venue.mapsUrl ?? ""); setVenueCapacityMin(venue.capacityMin == null ? "" : String(venue.capacityMin));
+    setVenueAddress(venue.address ?? ""); setVenueMapsUrl(venue.mapsUrl ?? ""); setVenueLatitude(venue.latitude == null ? "" : String(venue.latitude)); setVenueLongitude(venue.longitude == null ? "" : String(venue.longitude)); setVenueCapacityMin(venue.capacityMin == null ? "" : String(venue.capacityMin));
     setVenueCapacityMax(venue.capacityMax == null ? "" : String(venue.capacityMax)); setVenuePriceFrom(venue.priceFrom ?? ""); setVenuePriceTo(venue.priceTo ?? "");
     setVenueAmenities(venue.amenities.join("\n")); setVenueEventTypes(venue.eventTypes.join("\n")); setVenueGalleryUrls(venue.galleryUrls.join("\n"));
     setVenuePhone(venue.phone ?? ""); setVenueEmail(venue.email ?? ""); setVenueWebsite(venue.websiteUrl ?? ""); setVenueBookingTerms(venue.bookingTerms ?? "");
     setVenuePaymentTerms(venue.paymentTerms ?? ""); setVenueCancellationTerms(venue.cancellationTerms ?? ""); setVenueVendorId(venue.vendorId ?? "");
+    setVenueIsDemo(venue.isDemo);
+  }
+  async function uploadVenuePhotos(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
+    const current = splitLines(venueGalleryUrls);
+    if (current.length + files.length > 20) {
+      setError("Cada espaço pode ter até 20 fotografias. Remove algumas antes de carregar mais.");
+      event.target.value = "";
+      return;
+    }
+    const invalidType = files.find((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type));
+    const tooLarge = files.find((file) => file.size > 8 * 1024 * 1024);
+    if (invalidType) { setError("Usa fotografias JPEG, PNG ou WebP."); event.target.value = ""; return; }
+    if (tooLarge) { setError("Cada fotografia deve ter no máximo 8 MB."); event.target.value = ""; return; }
+    setError(""); setVenuePhotoUploading(true);
+    const uploaded = [...current];
+    try {
+      for (const file of files) {
+        const form = new FormData(); form.append("image", file);
+        const result = await api<{ imageUrl: string }>("/admin/venues/photos", { method: "POST", body: form });
+        uploaded.push(result.imageUrl);
+        setVenueGalleryUrls(uploaded.join("\n"));
+      }
+      setSuccessNotice(`${files.length === 1 ? "Fotografia carregada" : `${files.length} fotografias carregadas`} e optimizadas. Guarda o espaço para publicar a galeria.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível carregar as fotografias.");
+    } finally {
+      setVenuePhotoUploading(false); event.target.value = "";
+    }
   }
   async function saveVenue(event: FormEvent) {
     event.preventDefault();
@@ -486,12 +545,15 @@ export default function AdminConsole() {
         name: venueName.trim(),
         slug: editingVenueId ? venueSlug.trim() : venueName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now().toString().slice(-4),
         venueType, description: venueDescription || null, province: venueProvince || null, municipality: venueMunicipality || null,
-        address: venueAddress || null, mapsUrl: venueMapsUrl || null, capacityMin: venueCapacityMin ? Number(venueCapacityMin) : null,
+        address: venueAddress || null, mapsUrl: venueMapsUrl || null,
+        latitude: venueLatitude !== "" ? Number(venueLatitude) : null, longitude: venueLongitude !== "" ? Number(venueLongitude) : null,
+        capacityMin: venueCapacityMin ? Number(venueCapacityMin) : null,
         capacityMax: venueCapacityMax ? Number(venueCapacityMax) : null, priceFrom: venuePriceFrom ? Number(venuePriceFrom) : null,
         priceTo: venuePriceTo ? Number(venuePriceTo) : null, amenities: splitLines(venueAmenities), eventTypes: splitLines(venueEventTypes),
         galleryUrls: splitLines(venueGalleryUrls), phone: venuePhone || null, email: venueEmail || null, websiteUrl: venueWebsite || null,
         bookingTerms: venueBookingTerms || null, paymentTerms: venuePaymentTerms || null, cancellationTerms: venueCancellationTerms || null,
         vendorId: venueVendorId || null,
+        isDemo: venueIsDemo,
       };
       await api(editingVenueId ? `/admin/venues/${editingVenueId}` : "/admin/venues", { method: editingVenueId ? "PATCH" : "POST", body: JSON.stringify(payload) });
       resetVenueForm();
@@ -521,34 +583,67 @@ export default function AdminConsole() {
       setConfigProvincesText(saved.provinces.join("\n"));
     });
   }
-  async function createGuide(e: FormEvent) {
+  function resetGuideEditor() {
+    setEditingGuideId(""); setGuideTitle(""); setGuideSlug(""); setGuideSummary("");
+    setGuideCategory("Planeamento"); setGuideBody(""); setGuideReadingMinutes("5");
+    setGuideSortOrder(String((Math.max(0, ...guides.map((guide) => guide.sortOrder || 0)) + 10)));
+    setGuideCoverImage(""); setGuideEditorView("edit");
+    if (window.matchMedia("(max-width: 1050px)").matches) requestAnimationFrame(() => document.querySelector(".admin-guide-editor-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+  function editGuide(guide: Guide, view: "edit" | "preview" = "edit") {
+    setEditingGuideId(guide.id); setGuideTitle(guide.title); setGuideSlug(guide.slug);
+    setGuideSummary(guide.summary); setGuideCategory(guide.category); setGuideBody(guide.body);
+    setGuideReadingMinutes(String(guide.readingMinutes || 5)); setGuideSortOrder(String(guide.sortOrder ?? 1000));
+    setGuideCoverImage(guide.coverImage || GUIDE_COVERS[guide.slug]?.src || ""); setGuideEditorView(view);
+    if (window.matchMedia("(max-width: 1050px)").matches) requestAnimationFrame(() => document.querySelector(".admin-guide-editor-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+  async function uploadGuideCover(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setError("Escolhe uma imagem JPEG, PNG ou WebP.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setError("A imagem deve ter no máximo 8 MB.");
+      event.target.value = "";
+      return;
+    }
+    setError(""); setGuideCoverUploading(true);
+    try {
+      const form = new FormData(); form.append("image", file);
+      const result = await api<{ coverImage: string }>("/admin/guides/covers", { method: "POST", body: form });
+      setGuideCoverImage(result.coverImage);
+      setSuccessNotice("Capa carregada e optimizada. Guarda o guia para a publicar.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível carregar a capa.");
+    } finally {
+      setGuideCoverUploading(false); event.target.value = "";
+    }
+  }
+  async function saveGuide(e: FormEvent) {
     e.preventDefault();
-    await run(async () => {
-      await api("/admin/guides", {
-        method: "POST",
-        body: JSON.stringify({
-          title: guideTitle,
-          slug: guideSlug,
-          summary: guideSummary,
-          body: guideBody,
-          category: guideCategory,
-          status: "DRAFT",
-        }),
-      });
-      setGuideTitle("");
-      setGuideSlug("");
-      setGuideSummary("");
-      setGuideCategory("Planeamento");
-      setGuideBody("");
-    });
+    const current = guides.find((guide) => guide.id === editingGuideId);
+    const payload = {
+      title: guideTitle.trim(), slug: guideSlug.trim(), summary: guideSummary.trim(),
+      body: guideBody.trim(), category: guideCategory.trim(),
+      readingMinutes: Number(guideReadingMinutes), sortOrder: Number(guideSortOrder),
+      coverImage: guideCoverImage || null, status: current?.status || "DRAFT",
+    };
+    const ok = await run(() => api(editingGuideId ? `/admin/guides/${editingGuideId}` : "/admin/guides", {
+      method: editingGuideId ? "PATCH" : "POST", body: JSON.stringify(payload),
+    }));
+    if (ok) { resetGuideEditor(); setGuideListPage(1); }
   }
   async function publishGuide(g: Guide) {
+    const status = g.status === "PUBLISHED" ? "DRAFT" : "PUBLISHED";
     await run(() =>
       api(`/admin/guides/${g.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          status: g.status === "PUBLISHED" ? "DRAFT" : "PUBLISHED",
-          reviewedAt: new Date().toISOString(),
+          status,
+          ...(status === "PUBLISHED" ? { reviewedAt: new Date().toISOString() } : {}),
         }),
       }),
     );
@@ -640,6 +735,14 @@ export default function AdminConsole() {
   }
   const pendingVendors = vendors.filter((vendor) => vendor.status === "PENDING");
   const pendingVenues = venues.filter((venue) => venue.status === "DRAFT" || venue.status === "PENDING");
+  const venueProvinces = Array.from(new Set(venues.map((venue) => venue.province).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b, "pt"));
+  const venueTypes = Array.from(new Set(venues.map((venue) => venue.venueType).filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt"));
+  const venueStats = {
+    total: venues.length,
+    published: venues.filter((venue) => venue.status === "PUBLISHED").length,
+    pending: pendingVenues.length,
+    missingPhotos: venues.filter((venue) => !venue.galleryUrls.length && !venue.isDemo).length,
+  };
   const openApplications = applications.filter((application) => ["NEW", "CONTACTED"].includes(application.status));
   const visibleVendors = vendors.filter((vendor) => {
     const matchesStatus = vendorStatusFilter === "ALL" || vendor.status === vendorStatusFilter;
@@ -651,7 +754,11 @@ export default function AdminConsole() {
   const visibleVenues = venues.filter((venue) => {
     const query = venueSearch.trim().toLocaleLowerCase("pt-AO");
     const matchesSearch = !query || [venue.name, venue.venueType, venue.province, venue.municipality, venue.address].some((value) => value?.toLocaleLowerCase("pt-AO").includes(query));
-    return matchesSearch && (venueStatusFilter === "ALL" || (venueStatusFilter === "PENDING" ? ["DRAFT", "PENDING"].includes(venue.status) : venue.status === venueStatusFilter));
+    return matchesSearch
+      && (venueStatusFilter === "ALL" || (venueStatusFilter === "PENDING" ? ["DRAFT", "PENDING"].includes(venue.status) : venue.status === venueStatusFilter))
+      && (!venueListProvinceFilter || venue.province === venueListProvinceFilter)
+      && (!venueListTypeFilter || venue.venueType === venueListTypeFilter)
+      && (venueListDemoFilter === "ALL" || venue.isDemo === (venueListDemoFilter === "DEMO"));
   });
   const pagedVendors = slicePage(visibleVendors, adminListPage, adminListPageSize);
   const pagedVenues = slicePage(visibleVenues, adminListPage, adminListPageSize);
@@ -690,6 +797,22 @@ export default function AdminConsole() {
     ["support", `Pedidos de suporte${openSupportCount ? ` (${openSupportCount})` : ""}`],
     ["history", "Histórico"],
   ] as const;
+  const visibleGuides = guides.filter((guide) => {
+    const query = guideSearch.trim().toLocaleLowerCase("pt-AO");
+    const matchesQuery = !query || `${guide.title} ${guide.slug} ${guide.category}`.toLocaleLowerCase("pt-AO").includes(query);
+    return matchesQuery && (guideStatusFilter === "ALL" || guide.status === guideStatusFilter);
+  });
+  const pagedGuides = slicePage(visibleGuides, guideListPage, guideListPageSize);
+  const guideCounts = {
+    total: guides.length,
+    published: guides.filter((guide) => guide.status === "PUBLISHED").length,
+    drafts: guides.filter((guide) => guide.status === "DRAFT").length,
+  };
+  const uploadedCoverPaths = Array.from(new Set([...guides.map((guide) => guide.coverImage), guideCoverImage].filter((value): value is string => Boolean(value && value.startsWith("/api/v1/guides/covers/")))));
+  const availableGuideCovers = [
+    ...guideCoverOptions,
+    ...uploadedCoverPaths.filter((src) => !guideCoverOptions.some((cover) => cover.src === src)).map((src, index) => ({ slug: src, src, alt: `Capa carregada ${index + 1}` })),
+  ];
   return (
     <main className="admin-page">
       <Link className="planner-back" href="/dashboard">
@@ -744,37 +867,68 @@ export default function AdminConsole() {
           </nav>}
           {tab === "venues" && (
             <>
-              <header className="admin-workbar"><div><p className="eyebrow">Catálogo público</p><h2>Gestão de espaços</h2><p>Publica apenas informação confirmada com o responsável. A Nuvia não apresenta disponibilidade ou preços como garantidos.</p></div><button className="button button-primary" onClick={() => { resetVenueForm(); setShowVenueForm(true); }}>+ Registar espaço</button></header>
+              <header className="admin-workbar"><div><p className="eyebrow">Catálogo público</p><h2>Gestão de espaços</h2><p>Revê fotografias e informação antes de publicar. Os dados de demonstração estão identificados e não representam locais reais.</p></div><button className="button button-primary" onClick={() => { resetVenueForm(); setShowVenueForm(true); }}>+ Registar espaço</button></header>
+              <section className="admin-venue-summary" aria-label="Resumo dos espaços">
+                <article><small>Total</small><strong>{venueStats.total}</strong></article>
+                <article><small>Publicados</small><strong>{venueStats.published}</strong></article>
+                <article><small>Por preparar/rever</small><strong>{venueStats.pending}</strong></article>
+                <article><small>Sem fotografia</small><strong>{venueStats.missingPhotos}</strong></article>
+              </section>
               <div className={`admin-grid ${showVenueForm ? "with-form" : "list-only"}`}>
                 <section className="dash-panel">
-                  <div className="admin-filter-bar"><label className="admin-search">Pesquisar<input value={venueSearch} onChange={event => setVenueSearch(event.target.value)} placeholder="Nome, tipo ou localização" /></label><label>Estado<select value={venueStatusFilter} onChange={event => setVenueStatusFilter(event.target.value)}><option value="ALL">Todos</option><option value="PENDING">Por preparar/rever</option><option value="PUBLISHED">Publicados</option><option value="SUSPENDED">Suspensos</option></select></label><button type="button" className="button button-outline compact" onClick={() => { setVenueSearch(""); setVenueStatusFilter("ALL"); }}>Limpar</button></div>
-                  {visibleVenues.length ? pagedVenues.map(venue => <article className="admin-row venue-admin-row" key={venue.id}>
-                    <span><strong>{venue.name}</strong><small>{venue.venueType} · {[venue.municipality, venue.province].filter(Boolean).join(", ") || "Localização por preencher"}</small><small>{venue.capacityMax ? `${venue.capacityMin ?? 1}–${venue.capacityMax} pessoas` : "Capacidade por confirmar"} · {venue.priceFrom || venue.priceTo ? `${formatAOA(venue.priceFrom)} – ${formatAOA(venue.priceTo)}` : "Preço sob consulta"}</small><small>Estado: {venue.status === "DRAFT" ? "Rascunho" : venue.status === "PENDING" ? "Por rever" : venue.status === "PUBLISHED" ? "Publicado" : "Suspenso"}{venue.verifiedAt ? ` · Dados revistos em ${new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(venue.verifiedAt))}` : ""}</small><small>{venue.phone || venue.email || venue.websiteUrl || "Contacto por preencher"}{venue.galleryUrls.length ? ` · ${venue.galleryUrls.length} fotografia(s)` : " · Sem fotografias"}</small></span>
-                    <div>{venue.status === "PUBLISHED" && <a href={`/espacos/${venue.slug}`} target="_blank" rel="noreferrer">Pré-visualizar</a>}<button type="button" disabled={savingAction} onClick={() => editVenue(venue)}>Editar</button>{venue.status === "PUBLISHED" ? <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "SUSPENDED")}>Suspender</button> : venue.status === "SUSPENDED" ? <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "PENDING")}>Voltar para revisão</button> : <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "PUBLISHED")}>Confirmar e publicar</button>}</div>
-                  </article>) : <p className="empty-copy">{venueSearch || venueStatusFilter !== "ALL" ? "Não encontrámos espaços com estes filtros." : "Ainda não há espaços registados. Adiciona os primeiros espaços reais para preparar o catálogo."}</p>}
+                  <div className="admin-filter-bar admin-venue-filter-bar"><label className="admin-search">Pesquisar<input value={venueSearch} onChange={event => { setVenueSearch(event.target.value); setAdminListPage(1); }} placeholder="Nome, tipo ou localização" /></label><label>Estado<select value={venueStatusFilter} onChange={event => { setVenueStatusFilter(event.target.value); setAdminListPage(1); }}><option value="ALL">Todos</option><option value="PENDING">Por preparar/rever</option><option value="PUBLISHED">Publicados</option><option value="SUSPENDED">Suspensos</option></select></label><label>Província<select value={venueListProvinceFilter} onChange={event => { setVenueListProvinceFilter(event.target.value); setAdminListPage(1); }}><option value="">Todas</option>{venueProvinces.map((item) => <option key={item}>{item}</option>)}</select></label><label>Tipo<select value={venueListTypeFilter} onChange={event => { setVenueListTypeFilter(event.target.value); setAdminListPage(1); }}><option value="">Todos os tipos</option>{venueTypes.map((item) => <option key={item}>{item}</option>)}</select></label><label>Perfil<select value={venueListDemoFilter} onChange={event => { setVenueListDemoFilter(event.target.value); setAdminListPage(1); }}><option value="ALL">Todos</option><option value="REAL">Reais</option><option value="DEMO">Demonstração</option></select></label><button type="button" className="button button-outline compact" onClick={() => { setVenueSearch(""); setVenueStatusFilter("ALL"); setVenueListProvinceFilter(""); setVenueListTypeFilter(""); setVenueListDemoFilter("ALL"); setAdminListPage(1); }}>Limpar</button></div>
+                  {visibleVenues.length ? pagedVenues.map(venue => {
+                    const missing = venue.isDemo ? [] : [!venue.province && !venue.municipality ? "localização" : "", !venue.galleryUrls.length ? "fotografia" : "", !venue.phone && !venue.email && !venue.websiteUrl ? "contacto" : ""].filter(Boolean);
+                    return <article className={`admin-row venue-admin-row ${venue.isDemo ? "is-demo" : ""}`} key={venue.id}>
+                      {venue.galleryUrls[0] ? <img className="admin-venue-thumb" src={venue.galleryUrls[0]} alt="" loading="lazy" referrerPolicy={venue.galleryUrls[0].startsWith("http") ? "no-referrer" : undefined} /> : <span className="admin-venue-thumb-empty" aria-hidden="true">⌂</span>}
+                      <span><strong>{venue.name}</strong><small>{venue.venueType} · {[venue.municipality, venue.province].filter(Boolean).join(", ") || "Localização por preencher"}</small><small>{venue.capacityMax ? `${venue.capacityMin ?? 1}–${venue.capacityMax} pessoas` : "Capacidade por confirmar"} · {venue.priceFrom || venue.priceTo ? `${formatAOA(venue.priceFrom)} – ${formatAOA(venue.priceTo)}` : "Preço sob consulta"}</small><small className="admin-venue-status-line"><em className={`admin-venue-status status-${venue.status.toLowerCase()}`}>{venue.status === "DRAFT" ? "Rascunho" : venue.status === "PENDING" ? "Por rever" : venue.status === "PUBLISHED" ? "Publicado" : "Suspenso"}</em>{venue.isDemo && <em className="admin-venue-demo-badge">Demonstração</em>}{venue.verifiedAt ? ` · Revisto ${new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(venue.verifiedAt))}` : ""}</small><small>{missing.length ? `Por completar: ${missing.join(" · ")}` : "Dados essenciais preenchidos"} · {venue.galleryUrls.length} fotografia(s)</small></span>
+                      <div>{venue.status === "PUBLISHED" && <a href={`/espacos/${venue.slug}`} target="_blank" rel="noreferrer">Pré-visualizar</a>}<button type="button" disabled={savingAction} onClick={() => editVenue(venue)}>Editar</button>{venue.status === "PUBLISHED" ? <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "SUSPENDED")}>Suspender</button> : venue.status === "SUSPENDED" ? <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "PENDING")}>Voltar para revisão</button> : <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "PUBLISHED")}>Confirmar e publicar</button>}</div>
+                    </article>;
+                  }) : <p className="empty-copy">{venueSearch || venueStatusFilter !== "ALL" || venueListProvinceFilter || venueListTypeFilter || venueListDemoFilter !== "ALL" ? "Não encontrámos espaços com estes filtros." : "Ainda não há espaços registados. Adiciona os primeiros espaços reais para preparar o catálogo."}</p>}
                   <ListPagination page={adminListPage} pageSize={adminListPageSize} total={visibleVenues.length} label="espaços" onPageChange={setAdminListPage} onPageSizeChange={(size) => { setAdminListPageSize(size); setAdminListPage(1); }} />
                 </section>
                 {showVenueForm && <form className="dash-panel admin-form venue-admin-form" onSubmit={saveVenue}>
                   <h2>{editingVenueId ? "Editar espaço" : "Registar espaço"}</h2>
-                  <p>O espaço começa como rascunho. Para publicar, confirma localização, lotação, contacto e pelo menos uma fotografia com o responsável.</p>
-                  <label>Nome do espaço<input required minLength={2} maxLength={120} value={venueName} onChange={event => setVenueName(event.target.value)} placeholder="Ex.: Quinta das Acácias" /></label>
-                  {editingVenueId && <label>Endereço do perfil<input required value={venueSlug} onChange={event => setVenueSlug(event.target.value)} /></label>}
-                  <label>Tipo de espaço<select value={venueType} onChange={event => setVenueType(event.target.value)}><option>Quinta</option><option>Salão de festas</option><option>Hotel</option><option>Restaurante</option><option>Praia ou espaço ao ar livre</option><option>Outro</option></select></label>
-                  <label>Descrição<textarea maxLength={2500} value={venueDescription} onChange={event => setVenueDescription(event.target.value)} /></label>
-                  <div className="admin-form-pair"><label>Província<input value={venueProvince} onChange={event => setVenueProvince(event.target.value)} /></label><label>Município<input value={venueMunicipality} onChange={event => setVenueMunicipality(event.target.value)} /></label></div>
-                  <label>Endereço<input maxLength={300} value={venueAddress} onChange={event => setVenueAddress(event.target.value)} placeholder="Bairro, rua ou referência" /></label>
-                  <label>Link de localização (HTTPS)<input type="url" value={venueMapsUrl} onChange={event => setVenueMapsUrl(event.target.value)} placeholder="https://maps.google.com/…" /></label>
-                  <div className="admin-form-pair"><label>Capacidade mínima<input type="number" min="0" value={venueCapacityMin} onChange={event => setVenueCapacityMin(event.target.value)} /></label><label>Capacidade máxima<input type="number" min="1" value={venueCapacityMax} onChange={event => setVenueCapacityMax(event.target.value)} /></label></div>
-                  <div className="admin-form-pair"><label>Preço desde (Kz, opcional)<input type="number" min="0" step="any" value={venuePriceFrom} onChange={event => setVenuePriceFrom(event.target.value)} /></label><label>Preço até (Kz, opcional)<input type="number" min="0" step="any" value={venuePriceTo} onChange={event => setVenuePriceTo(event.target.value)} /></label></div>
-                  <label>Características, uma por linha<textarea value={venueAmenities} onChange={event => setVenueAmenities(event.target.value)} placeholder={"Estacionamento\nJardim\nCozinha de apoio"} /></label>
-                  <label>Tipos de evento, um por linha<textarea value={venueEventTypes} onChange={event => setVenueEventTypes(event.target.value)} placeholder={"Casamento\nAlambamento\nFesta"} /></label>
-                  <label>Fotografias (URLs HTTPS, uma por linha)<textarea value={venueGalleryUrls} onChange={event => setVenueGalleryUrls(event.target.value)} placeholder="https://…" /><small>Usa imagens autorizadas pelo responsável do espaço. Não acrescentes disponibilidade ou preços por suposição.</small></label>
-                  <div className="admin-form-pair"><label>Telefone<input value={venuePhone} onChange={event => setVenuePhone(event.target.value)} /></label><label>Email<input type="email" value={venueEmail} onChange={event => setVenueEmail(event.target.value)} /></label></div>
-                  <label>Website (HTTPS)<input type="url" value={venueWebsite} onChange={event => setVenueWebsite(event.target.value)} /></label>
-                  <label>Condições de reserva<textarea maxLength={1000} value={venueBookingTerms} onChange={event => setVenueBookingTerms(event.target.value)} /></label>
-                  <label>Condições de pagamento<textarea maxLength={1000} value={venuePaymentTerms} onChange={event => setVenuePaymentTerms(event.target.value)} /></label>
-                  <label>Política de cancelamento<textarea maxLength={1000} value={venueCancellationTerms} onChange={event => setVenueCancellationTerms(event.target.value)} /></label>
-                  <label>Prestador associado (opcional)<select value={venueVendorId} onChange={event => setVenueVendorId(event.target.value)}><option value="">Sem associação</option>{vendors.filter(vendor => vendor.status === "ACTIVE").map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</select></label>
+                  <p>Organiza o perfil por secções. Antes de publicar, confirma os dados e as fotografias com o responsável.</p>
+                  <details className="admin-venue-form-section" open><summary><span>Perfil e localização</span><small>Nome, tipo e onde fica</small></summary>
+                    <label>Nome do espaço<input required minLength={2} maxLength={120} value={venueName} onChange={event => setVenueName(event.target.value)} placeholder="Ex.: Quinta das Acácias" /></label>
+                    {editingVenueId && <label>Endereço do perfil<input required value={venueSlug} onChange={event => setVenueSlug(event.target.value)} /></label>}
+                    <label>Tipo de espaço<select value={venueType} onChange={event => setVenueType(event.target.value)}><option>Quinta</option><option>Salão de festas</option><option>Hotel</option><option>Restaurante</option><option>Praia ou espaço ao ar livre</option><option>Outro</option></select></label>
+                    <label>Descrição<textarea maxLength={2500} value={venueDescription} onChange={event => setVenueDescription(event.target.value)} /></label>
+                    <div className="admin-form-pair"><label>Província<input value={venueProvince} onChange={event => setVenueProvince(event.target.value)} /></label><label>Município<input value={venueMunicipality} onChange={event => setVenueMunicipality(event.target.value)} /></label></div>
+                    <label>Endereço<input maxLength={300} value={venueAddress} onChange={event => setVenueAddress(event.target.value)} placeholder="Bairro, rua ou referência" /></label>
+                    <label>Link do mapa (opcional)<input type="url" value={venueMapsUrl} onChange={event => setVenueMapsUrl(event.target.value)} placeholder="Google Maps, Apple Maps ou OpenStreetMap" /><small>O link fica no perfil para abrir no serviço de mapas que o espaço usa.</small></label>
+                    {venueMapLinkCoordinates ? <button className="button button-outline compact admin-map-import-link" type="button" onClick={() => { setVenueLatitude(String(venueMapLinkCoordinates.latitude)); setVenueLongitude(String(venueMapLinkCoordinates.longitude)); }}>Usar ponto encontrado no link ({venueMapLinkCoordinates.latitude}, {venueMapLinkCoordinates.longitude})</button> : venueMapsUrl && <small className="admin-map-link-note">Não foi possível ler um ponto deste link. Links curtos continuam válidos para abrir o mapa; podes marcar o ponto manualmente abaixo.</small>}
+                    <div className="admin-map-coordinate-help"><strong>Mapa incorporado no perfil</strong><span>Se o link não incluir as coordenadas, podes marcá-las aqui. O mapa do perfil usa OpenStreetMap e o link partilhado continua disponível como alternativa.</span></div>
+                    <div className="admin-form-pair"><label>Latitude<input type="number" min="-90" max="90" step="any" inputMode="decimal" value={venueLatitude} onChange={event => setVenueLatitude(event.target.value)} placeholder="Ex.: -8.83833" /></label><label>Longitude<input type="number" min="-180" max="180" step="any" inputMode="decimal" value={venueLongitude} onChange={event => setVenueLongitude(event.target.value)} placeholder="Ex.: 13.23440" /></label></div>
+                    {(venueLatitude === "") !== (venueLongitude === "") && <small className="admin-map-coordinate-error" role="alert">Preenche os dois campos ou deixa ambos vazios.</small>}
+                    {venueLatitude !== "" && venueLongitude !== "" && Number.isFinite(Number(venueLatitude)) && Number.isFinite(Number(venueLongitude)) && Math.abs(Number(venueLatitude)) <= 90 && Math.abs(Number(venueLongitude)) <= 180 && <div className="admin-map-preview"><iframe src={openStreetMapEmbedUrl(Number(venueLatitude), Number(venueLongitude))} title="Pré-visualização do ponto no mapa" loading="lazy" referrerPolicy="no-referrer" /><a href={openStreetMapUrl(Number(venueLatitude), Number(venueLongitude))} target="_blank" rel="noreferrer">Abrir pré-visualização ↗</a></div>}
+                    <label className="admin-venue-demo-control"><input type="checkbox" checked={venueIsDemo} onChange={event => setVenueIsDemo(event.target.checked)} /><span>Perfil de demonstração</span></label>
+                    {venueIsDemo && <small className="admin-venue-demo-help">Será identificado como demonstração e não deve sugerir um espaço real ou disponível para reserva.</small>}
+                  </details>
+                  <details className="admin-venue-form-section"><summary><span>Lotação e preços</span><small>Valores indicativos confirmados</small></summary>
+                    <div className="admin-form-pair"><label>Capacidade mínima<input type="number" min="0" value={venueCapacityMin} onChange={event => setVenueCapacityMin(event.target.value)} /></label><label>Capacidade máxima<input type="number" min="1" value={venueCapacityMax} onChange={event => setVenueCapacityMax(event.target.value)} /></label></div>
+                    <div className="admin-form-pair"><label>Preço desde (Kz, opcional)<input type="number" min="0" step="any" value={venuePriceFrom} onChange={event => setVenuePriceFrom(event.target.value)} /></label><label>Preço até (Kz, opcional)<input type="number" min="0" step="any" value={venuePriceTo} onChange={event => setVenuePriceTo(event.target.value)} /></label></div>
+                  </details>
+                  <details className="admin-venue-form-section"><summary><span>Características</span><small>Comodidades e eventos aceites</small></summary>
+                    <label>Características, uma por linha<textarea value={venueAmenities} onChange={event => setVenueAmenities(event.target.value)} placeholder={"Estacionamento\nJardim\nCozinha de apoio"} /></label>
+                    <label>Tipos de evento, um por linha<textarea value={venueEventTypes} onChange={event => setVenueEventTypes(event.target.value)} placeholder={"Casamento\nAlambamento\nFesta"} /></label>
+                  </details>
+                  <details className="admin-venue-form-section" open><summary><span>Fotografias</span><small>{splitLines(venueGalleryUrls).length} carregada(s) · escolhe a capa abaixo</small></summary>
+                  <label className="admin-venue-upload-label">Fotografias do espaço<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => void uploadVenuePhotos(event)} disabled={venuePhotoUploading} /><small>{venuePhotoUploading ? "A optimizar fotografias…" : "Anexa até 20 imagens JPEG, PNG ou WebP, com no máximo 8 MB cada. As imagens são optimizadas para WebP."}</small></label>
+                  {splitLines(venueGalleryUrls).length > 0 && <div className="admin-venue-photo-grid" aria-label="Pré-visualização das fotografias"><strong>{splitLines(venueGalleryUrls).length} fotografia(s) · a primeira é a capa</strong>{splitLines(venueGalleryUrls).map((src, index) => <figure className={index === 0 ? "is-cover" : ""} key={`${src}-${index}`}><img src={src} alt={`Fotografia ${index + 1} do espaço`} loading="lazy" referrerPolicy={src.startsWith("http") ? "no-referrer" : undefined} />{index === 0 && <em>Capa</em>}<div><button type="button" aria-label={`Mover fotografia ${index + 1} para a esquerda`} disabled={index === 0} onClick={() => { const photos = splitLines(venueGalleryUrls); [photos[index - 1], photos[index]] = [photos[index], photos[index - 1]]; setVenueGalleryUrls(photos.join("\n")); }}>←</button><button type="button" aria-label={`Mover fotografia ${index + 1} para a direita`} disabled={index === splitLines(venueGalleryUrls).length - 1} onClick={() => { const photos = splitLines(venueGalleryUrls); [photos[index + 1], photos[index]] = [photos[index], photos[index + 1]]; setVenueGalleryUrls(photos.join("\n")); }}>→</button><button type="button" aria-label={`Remover fotografia ${index + 1}`} onClick={() => setVenueGalleryUrls(splitLines(venueGalleryUrls).filter((_, itemIndex) => itemIndex !== index).join("\n"))}>×</button></div></figure>)}</div>}
+                  <label>Ou adicionar URLs de fotografias HTTPS, uma por linha<textarea value={venueGalleryUrls} onChange={event => setVenueGalleryUrls(event.target.value)} placeholder="https://…" /><small>Usa imagens autorizadas pelo responsável do espaço. Não acrescentes disponibilidade ou preços por suposição.</small></label>
+                  </details>
+                  <details className="admin-venue-form-section"><summary><span>Contactos</span><small>Como chegar ao responsável</small></summary>
+                    <div className="admin-form-pair"><label>Telefone<input value={venuePhone} onChange={event => setVenuePhone(event.target.value)} /></label><label>Email<input type="email" value={venueEmail} onChange={event => setVenueEmail(event.target.value)} /></label></div>
+                    <label>Website (HTTPS)<input type="url" value={venueWebsite} onChange={event => setVenueWebsite(event.target.value)} /></label>
+                    <label>Prestador associado (opcional)<select value={venueVendorId} onChange={event => setVenueVendorId(event.target.value)}><option value="">Sem associação</option>{vendors.filter(vendor => vendor.status === "ACTIVE").map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</select></label>
+                  </details>
+                  <details className="admin-venue-form-section"><summary><span>Condições</span><small>Reserva, pagamentos e cancelamentos</small></summary>
+                    <label>Condições de reserva<textarea maxLength={1000} value={venueBookingTerms} onChange={event => setVenueBookingTerms(event.target.value)} /></label>
+                    <label>Condições de pagamento<textarea maxLength={1000} value={venuePaymentTerms} onChange={event => setVenuePaymentTerms(event.target.value)} /></label>
+                    <label>Política de cancelamento<textarea maxLength={1000} value={venueCancellationTerms} onChange={event => setVenueCancellationTerms(event.target.value)} /></label>
+                  </details>
                   <div className="admin-form-actions"><button className="button button-primary" disabled={savingAction}>{savingAction ? "A guardar…" : editingVenueId ? "Guardar alterações" : "Guardar rascunho"}</button><button type="button" className="button button-outline" onClick={resetVenueForm}>Cancelar</button></div>
                 </form>}
               </div>
@@ -1068,69 +1222,54 @@ export default function AdminConsole() {
             </section>
           )}
           {tab === "guides" && (
-            <div className="admin-grid">
-              <section className="dash-panel">
-                <h2>Guias</h2>
-                <PaginatedList items={guides} label="guias">{(g) => (
-                  <article className="admin-row" key={g.id}>
-                    <span>
-                      <strong>{g.title}</strong>
-                    <small>{g.category} · {g.status}</small>
-                    </span>
-                    <button onClick={() => void publishGuide(g)}>
-                      {g.status === "PUBLISHED" ? "Retirar" : "Publicar"}
-                    </button>
-                  </article>
-                )}</PaginatedList>
-              </section>
-              <form className="dash-panel admin-form" onSubmit={createGuide}>
-                <h2>Escrever guia</h2>
-                <label>
-                  Título
-                  <input
-                    required
-                    value={guideTitle}
-                    onChange={(e) => setGuideTitle(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Slug
-                  <input
-                    required
-                    value={guideSlug}
-                    onChange={(e) => setGuideSlug(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Resumo
-                  <input
-                    required
-                    value={guideSummary}
-                    onChange={(e) => setGuideSummary(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Categoria
-                  <input
-                    required
-                    value={guideCategory}
-                    onChange={(e) => setGuideCategory(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Conteúdo
-                  <textarea
-                    required
-                    minLength={20}
-                    value={guideBody}
-                    onChange={(e) => setGuideBody(e.target.value)}
-                  />
-                </label>
-                <button className="button button-primary">
-                  Guardar rascunho
-                </button>
-              </form>
-            </div>
+            <section className="admin-guides-workspace">
+              <div className="admin-guide-summary" aria-label="Resumo da Biblioteca">
+                <article><span>Total de guias</span><strong>{guideCounts.total}</strong></article>
+                <article><span>Publicados</span><strong>{guideCounts.published}</strong></article>
+                <article><span>Rascunhos</span><strong>{guideCounts.drafts}</strong></article>
+                <button className="button button-primary" type="button" onClick={resetGuideEditor}>+ Novo guia</button>
+              </div>
+              <div className="admin-guide-columns">
+                <section className="dash-panel admin-guide-list-panel">
+                  <header className="admin-guide-list-heading"><div><h2>Biblioteca</h2><p>Pesquisa, revê e publica os conteúdos.</p></div><span>{visibleGuides.length} {visibleGuides.length === 1 ? "guia" : "guias"}</span></header>
+                  <div className="admin-guide-filters">
+                    <label className="sr-only" htmlFor="admin-guide-search">Pesquisar guias</label>
+                    <input id="admin-guide-search" value={guideSearch} onChange={(event) => { setGuideSearch(event.target.value); setGuideListPage(1); }} placeholder="Pesquisar por título ou tema" />
+                    <label className="sr-only" htmlFor="admin-guide-status">Estado do guia</label>
+                    <select id="admin-guide-status" value={guideStatusFilter} onChange={(event) => { setGuideStatusFilter(event.target.value); setGuideListPage(1); }}><option value="ALL">Todos os estados</option><option value="PUBLISHED">Publicados</option><option value="DRAFT">Rascunhos</option><option value="ARCHIVED">Arquivados</option></select>
+                  </div>
+                  <div className="admin-guide-list">
+                    {visibleGuides.length ? pagedGuides.map((guide) => {
+                      const cover = guide.coverImage || GUIDE_COVERS[guide.slug]?.src;
+                      return <article className={`admin-guide-item ${editingGuideId === guide.id ? "is-selected" : ""}`} key={guide.id}>
+                        <button className="admin-guide-item-main" type="button" onClick={() => editGuide(guide)} aria-label={`Editar ${guide.title}`}>
+                          {cover ? <img src={cover} alt="" loading="lazy" /> : <span className="admin-guide-no-cover">N</span>}
+                          <span className="admin-guide-item-copy"><strong>{guide.title}</strong><small>{guide.category} · {guide.readingMinutes || 5} min · Ordem {guide.sortOrder}</small><em className={guide.status === "PUBLISHED" ? "is-published" : "is-draft"}>{guide.status === "PUBLISHED" ? "Publicado" : guide.status === "ARCHIVED" ? "Arquivado" : "Rascunho"}</em></span>
+                        </button>
+                        <div className="admin-guide-item-actions"><button type="button" onClick={() => editGuide(guide, "preview")}>Pré-visualizar</button><button type="button" onClick={() => editGuide(guide)}>Editar</button><button type="button" disabled={savingAction} onClick={() => void publishGuide(guide)}>{guide.status === "PUBLISHED" ? "Retirar" : "Publicar"}</button></div>
+                      </article>;
+                    }) : <p className="admin-guide-empty">Não há guias com estes filtros.</p>}
+                  </div>
+                  <ListPagination page={guideListPage} pageSize={guideListPageSize} total={visibleGuides.length} label="guias" onPageChange={setGuideListPage} onPageSizeChange={(size) => { setGuideListPageSize(size); setGuideListPage(1); }} />
+                </section>
+                <section className="dash-panel admin-guide-editor-panel">
+                  <div className="admin-guide-editor-heading"><div><p className="eyebrow">Editor editorial</p><h2>{editingGuideId ? "Editar guia" : "Novo guia"}</h2></div>{editingGuideId && <button className="admin-guide-clear" type="button" onClick={resetGuideEditor}>Novo</button>}</div>
+                  <div className="admin-guide-editor-tabs" role="tablist" aria-label="Editor de guias"><button type="button" role="tab" aria-selected={guideEditorView === "edit"} className={guideEditorView === "edit" ? "current" : ""} onClick={() => setGuideEditorView("edit")}>Conteúdo</button><button type="button" role="tab" aria-selected={guideEditorView === "preview"} className={guideEditorView === "preview" ? "current" : ""} onClick={() => setGuideEditorView("preview")}>Pré-visualização</button></div>
+                  {guideEditorView === "preview" ? <div className="admin-guide-preview-wrap"><GuidePreview guide={{ title: guideTitle, slug: guideSlug, summary: guideSummary, category: guideCategory, body: guideBody, readingMinutes: Number(guideReadingMinutes) || 5, coverImage: guideCoverImage || null }} /></div> : <form className="admin-form admin-guide-form" onSubmit={saveGuide}>
+                    <label>Título<input required maxLength={180} value={guideTitle} onChange={(event) => { const value = event.target.value; setGuideTitle(value); if (!editingGuideId) setGuideSlug(value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-AO").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")); }} /></label>
+                    <label>Endereço do guia (slug)<input required maxLength={180} value={guideSlug} onChange={(event) => setGuideSlug(event.target.value)} /><small>Usado no link público. Evita alterá-lo depois de partilhar o guia.</small></label>
+                    <div className="admin-guide-field-row"><label>Categoria<input required maxLength={80} value={guideCategory} onChange={(event) => setGuideCategory(event.target.value)} /></label><label>Leitura (minutos)<input required type="number" min={1} max={60} value={guideReadingMinutes} onChange={(event) => setGuideReadingMinutes(event.target.value)} /></label><label>Ordem na Biblioteca<input required type="number" min={0} max={10000} value={guideSortOrder} onChange={(event) => setGuideSortOrder(event.target.value)} /></label></div>
+                    <label>Resumo<input required minLength={10} maxLength={500} value={guideSummary} onChange={(event) => setGuideSummary(event.target.value)} /></label>
+                    <label>Capa<select value={guideCoverImage} onChange={(event) => setGuideCoverImage(event.target.value)}><option value="">Sem capa</option>{availableGuideCovers.map((cover) => <option key={cover.slug} value={cover.src}>{cover.alt}</option>)}</select></label>
+                    <label className="admin-guide-upload-label">Ou carregar uma capa<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void uploadGuideCover(event)} disabled={guideCoverUploading} /><small>{guideCoverUploading ? "A optimizar imagem…" : "JPEG, PNG ou WebP · máximo 8 MB. A imagem é optimizada para WebP e proporção horizontal."}</small></label>
+                    {guideCoverImage && <div className="admin-guide-cover-preview"><img src={guideCoverImage} alt="Pré-visualização da capa seleccionada" /><span>Pré-visualização da capa · formato 16:9</span></div>}
+                    <label>Conteúdo <small>Suporta Markdown: títulos ##, listas, tabelas, negrito e links.</small><textarea required minLength={20} maxLength={30000} rows={14} value={guideBody} onChange={(event) => setGuideBody(event.target.value)} /></label>
+                    <div className="admin-guide-form-actions"><button className="button button-primary" disabled={savingAction}>{savingAction ? "A guardar…" : editingGuideId ? "Guardar alterações" : "Guardar rascunho"}</button><button className="button button-outline" type="button" onClick={() => setGuideEditorView("preview")}>Pré-visualizar</button></div>
+                  </form>}
+                  {guideEditorView === "preview" && <div className="admin-guide-preview-actions"><button className="button button-outline" type="button" onClick={() => setGuideEditorView("edit")}>Voltar ao conteúdo</button>{editingGuideId && <a className="button button-outline" href={`/guias/${guideSlug}`} target="_blank" rel="noreferrer">Abrir publicado ↗</a>}</div>}
+                </section>
+              </div>
+            </section>
           )}
           {tab === "legal" && (
             <div className="admin-legal-grid">

@@ -121,6 +121,12 @@ enum GuestRequestStatus {
   REVOKED
 }
 
+enum GuestContactChannel {
+  WHATSAPP
+  PHONE
+  EMAIL
+}
+
 enum NotificationType {
   RSVP_RECEIVED
   TASK_ASSIGNED
@@ -362,23 +368,24 @@ model EventMoment {
 }
 
 model GuestRequest {
-  id            String             @id @default(cuid())
-  projectId     String
-  invitationId  String
-  name          String
-  email         String?
-  phone         String?
-  partySize     Int                @default(1)
-  requestedRsvp RsvpStatus         @default(ACCEPTED)
-  note          String?
-  status        GuestRequestStatus @default(PENDING)
-  guestId       String?            @unique
-  reviewedAt    DateTime?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  project       EventProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  invitation    Invitation         @relation(fields: [invitationId], references: [id], onDelete: Cascade)
-  guest         Guest?             @relation(fields: [guestId], references: [id], onDelete: SetNull)
+  id              String                @id @default(cuid())
+  projectId       String
+  invitationId    String
+  name            String
+  email           String?
+  phone           String?
+  contactChannels GuestContactChannel[] @default([])
+  partySize       Int                   @default(1)
+  requestedRsvp   RsvpStatus            @default(ACCEPTED)
+  note            String?
+  status          GuestRequestStatus    @default(PENDING)
+  guestId         String?               @unique
+  reviewedAt      DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  project         EventProject          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitation      Invitation            @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  guest           Guest?                @relation(fields: [guestId], references: [id], onDelete: SetNull)
 
   @@index([projectId, status, createdAt])
   @@index([invitationId, email])
@@ -581,17 +588,17 @@ model Invitation {
 }
 
 model RSVP {
-  id        String       @id @default(cuid())
+  id        String             @id @default(cuid())
   guestId   String
   eventId   String?
-  eventKey  String       @default("all")
-  status    RsvpStatus   @default(PENDING)
+  eventKey  String             @default("all")
+  status    RsvpStatus         @default(PENDING)
   source    RsvpResponseSource @default(PUBLIC_LINK)
-  partySize Int          @default(1)
+  partySize Int                @default(1)
   note      String?
-  updatedAt DateTime     @updatedAt
-  guest     Guest        @relation(fields: [guestId], references: [id], onDelete: Cascade)
-  event     EventMoment? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  updatedAt DateTime           @updatedAt
+  guest     Guest              @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  event     EventMoment?       @relation(fields: [eventId], references: [id], onDelete: SetNull)
 
   @@unique([guestId, eventKey])
   @@index([eventId, status])
@@ -650,6 +657,8 @@ model Venue {
   municipality      String?
   address           String?
   mapsUrl           String?
+  latitude          Float?
+  longitude         Float?
   capacityMin       Int?
   capacityMax       Int?
   priceFrom         Decimal?    @db.Decimal(14, 2)
@@ -664,6 +673,7 @@ model Venue {
   paymentTerms      String?
   cancellationTerms String?
   status            VenueStatus @default(DRAFT)
+  isDemo            Boolean     @default(false)
   verifiedAt        DateTime?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
@@ -831,16 +841,19 @@ model VendorReview {
 }
 
 model GuideArticle {
-  id         String    @id @default(cuid())
-  slug       String    @unique
-  title      String
-  summary    String
-  body       String
-  category   String
-  status     String    @default("DRAFT")
-  isDemo     Boolean   @default(false)
-  reviewedAt DateTime?
-  createdAt  DateTime  @default(now())
+  id             String    @id @default(cuid())
+  slug           String    @unique
+  title          String
+  summary        String
+  body           String
+  category       String
+  readingMinutes Int       @default(5)
+  sortOrder      Int       @default(1000)
+  coverImage     String?
+  status         String    @default("DRAFT")
+  isDemo         Boolean   @default(false)
+  reviewedAt     DateTime?
+  createdAt      DateTime  @default(now())
 }
 
 model LegalSource {
