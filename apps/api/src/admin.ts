@@ -293,11 +293,13 @@ export class AdminController {
     @Query("status") status?: string,
     @Query("role") roleValue?: string,
     @Query("page") pageValue?: string,
+    @Query("pageSize") pageSizeValue?: string,
     @Query("createdFrom") createdFromValue?: string,
     @Query("createdTo") createdToValue?: string,
   ) {
     const page = Math.max(1, Math.min(10000, Number.parseInt(pageValue ?? "1", 10) || 1));
-    const pageSize = 25;
+    const requestedPageSize = /^\d+$/.test(pageSizeValue ?? "") ? Number(pageSizeValue) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
     const search = query?.trim().slice(0, 100);
     if (status && !Object.values(AccountStatus).includes(status as AccountStatus))
       throw new BadRequestException("Estado de conta inválido.");
@@ -780,16 +782,22 @@ export class AdminController {
     });
   }
 
-  @Get("audit") async audit(@CurrentUser() actor: SessionUser) {
+  @Get("audit") async audit(@CurrentUser() actor: SessionUser, @Query("page") pageRaw = "1", @Query("pageSize") pageSizeRaw = "20") {
     const account = await this.db.user.findUnique({ where: { id: actor.id }, select: { role: true } });
     const resources = ["Vendor", "Venue", "VendorApplication", "PlatformConfig", "VendorClaim", "VendorPortfolioItem", "VendorProfileSubmission", "VendorReview"];
     if (account?.role === UserRole.ADMIN) resources.push("User", "SupportRequest");
-    return this.db.auditLog.findMany({
-      where: { resource: { in: resources } },
+    const page = Math.max(1, Math.min(10000, Number.parseInt(pageRaw, 10) || 1));
+    const requestedPageSize = /^\d+$/.test(pageSizeRaw) ? Number(pageSizeRaw) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+    const where = { resource: { in: resources } };
+    const [items, total] = await Promise.all([this.db.auditLog.findMany({
+      where,
       include: { actor: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }), this.db.auditLog.count({ where })]);
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
   @Get("config") async config(@CurrentUser() user: SessionUser) {

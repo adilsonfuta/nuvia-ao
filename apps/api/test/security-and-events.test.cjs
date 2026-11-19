@@ -54,18 +54,19 @@ test("resposta de fornecedor só altera pedidos do seu perfil e notifica o event
   let notice;
   const db = {
     quoteRequest: {
-      findFirst: async () => ({ id: "quote-1", projectId: "event-1", status: "NEW", quotedAmount: null, respondedAt: null, vendor: { name: "Flor e Festa" } }),
+      findFirst: async () => ({ id: "quote-1", projectId: "event-1", status: "NEW", quotedAmount: null, respondedAt: null, vendor: { name: "Flor e Festa" }, project: { title: "Casamento" }, user: { id: "couple-1", name: "Ana" } }),
       update: async ({ data }) => { updated = data; return { id: "quote-1", projectId: "event-1", ...data }; },
     },
     projectMember: { findMany: async () => [{ userId: "couple-1" }] },
     notification: { createMany: async ({ data }) => { notice = data[0]; } },
   };
-  const result = await new VendorPortalController(db).respondToInquiry("quote-1", { id: "vendor-owner" }, { quotedAmount: 250000, responseNote: "Disponível nessa data." });
+  const email = { sendVendorResponse: async () => {} };
+  const result = await new VendorPortalController(db, email).respondToInquiry("quote-1", { id: "vendor-owner" }, { quotedAmount: 250000, responseNote: "Disponível nessa data." });
   assert.equal(result.status, "RESPONDED");
   assert.equal(updated.quotedAmount, 250000);
   assert.equal(notice.type, "QUOTE_RESPONSE_RECEIVED");
   assert.match(notice.href, /event-1/);
-  const missing = new VendorPortalController({ quoteRequest: { findFirst: async () => null } });
+  const missing = new VendorPortalController({ quoteRequest: { findFirst: async () => null } }, email);
   await catches(NotFoundException, () => missing.respondToInquiry("quote-2", { id: "another-user" }, {}));
 });
 

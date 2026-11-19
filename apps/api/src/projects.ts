@@ -20,6 +20,7 @@ import {
   EventType,
   ExpenseStatus,
   ExpensePaymentStatus,
+  GuestRequestStatus,
   InvitationTheme,
   NotificationType,
   ProjectKind,
@@ -30,6 +31,7 @@ import {
 } from "@casar/database";
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsBoolean,
   IsArray,
   IsDateString,
@@ -231,6 +233,10 @@ class CreateSeatingTableDto {
   @IsString() @MinLength(1) @MaxLength(80) name!: string;
   @IsOptional() @IsInt() @Min(1) @Max(1000) capacity?: number;
 }
+class UpdateSeatingTableDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(80) name?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(1000) capacity?: number | null;
+}
 class UpdateProjectDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(120) title?: string;
   @IsOptional() @IsEnum(ProjectKind) kind?: ProjectKind;
@@ -250,10 +256,14 @@ class CreateInvitationDto {
   @IsOptional() @IsString() @MaxLength(120) dressCode?: string | null;
   @IsOptional() @IsString() @MaxLength(120) supportContactName?: string | null;
   @IsOptional() @IsString() @MaxLength(40) supportContactPhone?: string | null;
+  @IsOptional() @IsBoolean() allowGuestRequests?: boolean;
 }
 class AddMemberDto {
   @IsString() email!: string;
   @IsEnum({ EDITOR: "EDITOR", VIEWER: "VIEWER" }) role!: "EDITOR" | "VIEWER";
+}
+class SendGuestInvitationsDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsString({ each: true }) guestIds!: string[];
 }
 const RsvpDecision = { ACCEPTED: "ACCEPTED", DECLINED: "DECLINED" } as const;
 class RsvpDto {
@@ -261,6 +271,19 @@ class RsvpDto {
   @IsEnum(RsvpDecision) status!: "ACCEPTED" | "DECLINED";
   @IsOptional() @IsInt() @Min(1) @Max(10) partySize?: number;
   @IsOptional() @IsString() @MaxLength(400) note?: string;
+}
+class ManualRsvpDto {
+  @IsEnum(RsvpDecision) status!: "ACCEPTED" | "DECLINED";
+  @IsOptional() @IsInt() @Min(1) @Max(10) partySize?: number;
+}
+class CreateGuestRequestDto {
+  @IsString() @MinLength(2) @MaxLength(120) name!: string;
+  @IsOptional() @IsEmail() @MaxLength(180) email?: string;
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  @IsInt() @Min(1) @Max(10) partySize!: number;
+  @IsEnum(RsvpDecision) requestedRsvp!: "ACCEPTED" | "DECLINED";
+  @IsOptional() @IsString() @MaxLength(400) note?: string;
+  @IsOptional() @IsString() @MaxLength(300) website?: string;
 }
 
 @ApiTags("Projectos de eventos")
@@ -290,6 +313,22 @@ export class ProjectsController {
     } catch (error) {
       console.error("Could not record event activity", { projectId, action, error });
     }
+  }
+  private async emailGuestsWithUpdates(projectId: string, detail: string, key: string) {
+    const [project, invitation, guests] = await Promise.all([
+      this.db.eventProject.findUnique({ where: { id: projectId }, select: { title: true } }),
+      this.db.invitation.findFirst({ where: { projectId, isPublic: true }, select: { slug: true } }),
+      this.db.guest.findMany({ where: { projectId, invitationSentAt: { not: null }, email: { not: null } }, select: { id: true, name: true, email: true } }),
+    ]);
+    if (!project || !invitation || !guests.length) return;
+    await Promise.all(guests.map((guest) => this.email.sendEventUpdate({
+      to: guest.email!,
+      name: guest.name,
+      project: project.title,
+      detail,
+      url: `${webOrigin()}/c/${invitation.slug}`,
+      key: `${projectId}/${guest.id}/${key}`,
+    })));
   }
   private async owned(projectId: string, userId: string, write = false) {
     const member = await this.db.projectMember.findUnique({
@@ -533,6 +572,7 @@ export class ProjectsController {
     @Body() body: UpdateProjectDto,
   ) {
     await this.owned(id, user.id, true);
+    const previous = await this.db.eventProject.findUnique({ where: { id }, select: { title: true, date: true, province: true } });
     const updated = await this.db.eventProject.update({
       where: { id },
       data: {
@@ -550,6 +590,13 @@ export class ProjectsController {
       },
     });
     await this.logActivity(id, user.id, "PROJECT_UPDATED", "EventProject", id, { changedFields: Object.keys(body) });
+    if (previous) {
+      const changes: string[] = [];
+      if (body.title !== undefined && previous.title !== updated.title) changes.push(`Nome do evento: ${updated.title}.`);
+      if (body.date !== undefined && previous.date?.getTime() !== updated.date?.getTime()) changes.push(`Data do evento: ${updated.date ? new Intl.DateTimeFormat("pt-AO", { dateStyle: "long", timeZone: "Africa/Luanda" }).format(updated.date) : "por confirmar"}.`);
+      if (body.province !== undefined && previous.province !== updated.province) changes.push(`Localização: ${updated.province || "por confirmar"}.`);
+      if (changes.length) await this.emailGuestsWithUpdates(id, changes.join(" "), `event-details/${updated.updatedAt.getTime()}`);
+    }
     return updated;
   }
   @Patch(":id/archive") async setArchived(
@@ -594,6 +641,7 @@ export class ProjectsController {
       },
     });
     await this.logActivity(id, user.id, "PROGRAM_MOMENT_CREATED", "EventMoment", created.id, { subject: created.title });
+    if (created.showToGuests) await this.emailGuestsWithUpdates(id, `Novo momento no programa: ${created.title}${created.startsAt ? `, ${new Intl.DateTimeFormat("pt-AO", { dateStyle: "long", timeStyle: "short", timeZone: "Africa/Luanda" }).format(created.startsAt)}` : ""}${created.venue ? `, em ${created.venue}` : ""}.`, `program-added/${created.id}`);
     return created;
   }
   @Patch(":id/events/:eventId") async updateEvent(
@@ -603,6 +651,7 @@ export class ProjectsController {
     @Body() body: UpdateEventDto,
   ) {
     await this.owned(id, user.id, true);
+    const previous = await this.db.eventMoment.findFirst({ where: { id: eventId, projectId: id } });
     const result = await this.db.eventMoment.updateMany({
       where: { id: eventId, projectId: id },
       data: {
@@ -618,6 +667,12 @@ export class ProjectsController {
     if (!result.count) throw new NotFoundException("Momento não encontrado.");
     const updated = await this.db.eventMoment.findUnique({ where: { id: eventId } });
     await this.logActivity(id, user.id, "PROGRAM_MOMENT_UPDATED", "EventMoment", eventId, { subject: updated?.title, changedFields: Object.keys(body) });
+    if (previous && updated && (previous.showToGuests || updated.showToGuests) && Object.keys(body).length) {
+      const detail = updated.showToGuests
+        ? `O programa foi actualizado: ${updated.title}${updated.startsAt ? `, ${new Intl.DateTimeFormat("pt-AO", { dateStyle: "long", timeStyle: "short", timeZone: "Africa/Luanda" }).format(updated.startsAt)}` : ""}${updated.venue ? `, em ${updated.venue}` : ""}.`
+        : `O momento “${previous.title}” deixou de aparecer no programa do convite.`;
+      await this.emailGuestsWithUpdates(id, detail, `program-updated/${eventId}/${Date.now()}`);
+    }
     return updated;
   }
   @Delete(":id/events/:eventId") async deleteEvent(
@@ -626,12 +681,13 @@ export class ProjectsController {
     @CurrentUser() user: SessionUser,
   ) {
     await this.owned(id, user.id, true);
-    const moment = await this.db.eventMoment.findFirst({ where: { id: eventId, projectId: id }, select: { title: true } });
+    const moment = await this.db.eventMoment.findFirst({ where: { id: eventId, projectId: id }, select: { title: true, showToGuests: true } });
     const result = await this.db.eventMoment.deleteMany({
       where: { id: eventId, projectId: id },
     });
     if (!result.count) throw new NotFoundException("Momento não encontrado.");
     await this.logActivity(id, user.id, "PROGRAM_MOMENT_DELETED", "EventMoment", eventId, { subject: moment?.title });
+    if (moment?.showToGuests) await this.emailGuestsWithUpdates(id, `O momento “${moment.title}” foi removido do programa do evento.`, `program-removed/${eventId}`);
     return { ok: true };
   }
   @Get(":id/tasks") async tasks(
@@ -784,6 +840,114 @@ export class ProjectsController {
     });
     return Promise.all(guests.map((guest) => exposeGuestRsvpToken(this.db, guest)));
   }
+  @Get(":id/guest-requests") async guestRequests(
+    @Param("id") id: string,
+    @CurrentUser() user: SessionUser,
+    @Query("page") pageQuery?: string,
+    @Query("pageSize") pageSizeQuery?: string,
+  ) {
+    await this.owned(id, user.id);
+    const page = Math.max(1, Math.min(10000, Number.parseInt(pageQuery ?? "1", 10) || 1));
+    const requestedPageSize = /^\d+$/.test(pageSizeQuery ?? "") ? Number(pageSizeQuery) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+    const [items, total, pendingCount] = await Promise.all([
+      this.db.guestRequest.findMany({
+        where: { projectId: id },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.db.guestRequest.count({ where: { projectId: id } }),
+      this.db.guestRequest.count({ where: { projectId: id, status: GuestRequestStatus.PENDING } }),
+    ]);
+    return { items, total, pendingCount, page, pageSize };
+  }
+  @Post(":id/guest-requests/:requestId/approve") async approveGuestRequest(
+    @Param("id") id: string,
+    @Param("requestId") requestId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.owned(id, user.id, true);
+    const credentials = createRsvpTokenCredentials();
+    const guest = await this.db.$transaction(async (tx) => {
+      const request = await tx.guestRequest.findFirst({ where: { id: requestId, projectId: id, status: GuestRequestStatus.PENDING } });
+      if (!request) throw new NotFoundException("Pedido pendente não encontrado.");
+      const claimed = await tx.guestRequest.updateMany({
+        where: { id: requestId, status: GuestRequestStatus.PENDING },
+        data: { status: GuestRequestStatus.APPROVED, reviewedAt: new Date() },
+      });
+      if (!claimed.count) throw new BadRequestException("Este pedido já foi analisado.");
+      const created = await tx.guest.create({
+        data: {
+          projectId: id,
+          name: request.name,
+          email: request.email,
+          phone: request.phone,
+          maxPartySize: request.partySize,
+          rsvpTokenHash: credentials.rsvpTokenHash,
+          rsvpTokenCiphertext: credentials.rsvpTokenCiphertext,
+          rsvps: { create: {
+            eventKey: "all",
+            status: request.requestedRsvp,
+            partySize: request.requestedRsvp === "ACCEPTED" ? request.partySize : 0,
+            note: request.note,
+          } },
+        },
+        include: { rsvps: true },
+      });
+      await tx.guestRequest.update({ where: { id: requestId }, data: { guestId: created.id } });
+      return created;
+    });
+    await this.logActivity(id, user.id, "GUEST_REQUEST_APPROVED", "GuestRequest", requestId, { subject: guest.name });
+    let invitationSent = false;
+    const [invitation, project] = await Promise.all([
+      this.db.invitation.findFirst({ where: { projectId: id, isPublic: true }, select: { slug: true } }),
+      this.db.eventProject.findUnique({ where: { id }, select: { title: true, date: true, province: true } }),
+    ]);
+    if (guest.email && invitation && project) {
+      const exposed = await exposeGuestRsvpToken(this.db, guest);
+      invitationSent = await this.email.sendGuestInvitation({
+        to: guest.email,
+        name: guest.name,
+        project: project.title,
+        date: project.date ? new Intl.DateTimeFormat("pt-AO", { dateStyle: "long", timeZone: "Africa/Luanda" }).format(project.date) : "Data por confirmar",
+        location: project.province ?? "",
+        url: `${webOrigin()}/c/${invitation.slug}?token=${encodeURIComponent(exposed.rsvpToken)}`,
+        key: `guest-request-approved/${requestId}`,
+      });
+      if (invitationSent) await this.db.guest.update({ where: { id: guest.id }, data: { invitationSentAt: new Date() } });
+    }
+    return { guest: await exposeGuestRsvpToken(this.db, guest), invitationSent };
+  }
+  @Post(":id/guest-requests/:requestId/reject") async rejectGuestRequest(
+    @Param("id") id: string,
+    @Param("requestId") requestId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.owned(id, user.id, true);
+    const updated = await this.db.guestRequest.updateMany({
+      where: { id: requestId, projectId: id, status: GuestRequestStatus.PENDING },
+      data: { status: GuestRequestStatus.REJECTED, reviewedAt: new Date() },
+    });
+    if (!updated.count) throw new NotFoundException("Pedido pendente não encontrado.");
+    await this.logActivity(id, user.id, "GUEST_REQUEST_REJECTED", "GuestRequest", requestId);
+    return { ok: true };
+  }
+  @Post(":id/guest-requests/:requestId/revoke") async revokeGuestRequest(
+    @Param("id") id: string,
+    @Param("requestId") requestId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.owned(id, user.id, true);
+    const request = await this.db.guestRequest.findFirst({ where: { id: requestId, projectId: id, status: GuestRequestStatus.APPROVED } });
+    if (!request) throw new NotFoundException("Inclusão aprovada não encontrada.");
+    await this.db.$transaction(async (tx) => {
+      await tx.guestRequest.update({ where: { id: requestId }, data: { status: GuestRequestStatus.REVOKED, reviewedAt: new Date() } });
+      if (request.guestId) await tx.guest.deleteMany({ where: { id: request.guestId, projectId: id } });
+    });
+    await this.logActivity(id, user.id, "GUEST_REQUEST_REVOKED", "GuestRequest", requestId);
+    return { ok: true };
+  }
   @Post(":id/guests") async addGuest(
     @Param("id") id: string,
     @CurrentUser() user: SessionUser,
@@ -916,11 +1080,42 @@ export class ProjectsController {
       );
     const updated = await this.db.guest.update({
       where: { id: guestId },
-      data: body,
+      data: { ...body, ...(body.email !== undefined && body.email !== guest.email ? { invitationSentAt: null } : {}) },
       include: { rsvps: true, seatingTable: true },
     });
     await this.logActivity(id, user.id, "GUEST_UPDATED", "Guest", guestId);
     return exposeGuestRsvpToken(this.db, updated);
+  }
+  @Patch(":id/guests/:guestId/rsvp") async updateGuestRsvpManually(
+    @Param("id") id: string,
+    @Param("guestId") guestId: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: ManualRsvpDto,
+  ) {
+    await this.owned(id, user.id, true);
+    const guest = await this.db.guest.findFirst({ where: { id: guestId, projectId: id }, select: { id: true, name: true, maxPartySize: true } });
+    if (!guest) throw new NotFoundException("Convidado não encontrado.");
+    const partySize = body.status === "ACCEPTED" ? body.partySize ?? 1 : 0;
+    if (partySize > guest.maxPartySize) throw new BadRequestException(`Este convite permite confirmar até ${guest.maxPartySize} pessoa(s).`);
+    const existing = await this.db.rSVP.findUnique({ where: { guestId_eventKey: { guestId, eventKey: "all" } } });
+    const response = await this.db.rSVP.upsert({
+      where: { guestId_eventKey: { guestId, eventKey: "all" } },
+      create: { guestId, eventKey: "all", status: body.status, partySize, source: "MANUAL" },
+      update: { status: body.status, partySize, source: "MANUAL" },
+    });
+    await this.logActivity(id, user.id, "GUEST_RSVP_RECORDED_MANUALLY", "RSVP", response.id, { subject: guest.name, status: body.status, partySize });
+    if (!existing || existing.status !== response.status || existing.partySize !== response.partySize) {
+      const answer = response.status === "ACCEPTED" ? `confirmou manualmente presença${response.partySize > 1 ? ` de ${response.partySize} pessoas` : ""}` : "foi marcado/a manualmente como indisponível";
+      await notifyProjectMembers(this.db, id, {
+        type: NotificationType.RSVP_RECEIVED,
+        key: `rsvp-manual:${guest.id}:${response.updatedAt.toISOString()}`,
+        sourceId: guest.id,
+        title: "Presença registada pela organização",
+        body: `${guest.name} ${answer}.`,
+        href: `/dashboard?tab=convidados&event=${encodeURIComponent(id)}`,
+      });
+    }
+    return response;
   }
   @Get(":id/tables") async tables(
     @Param("id") id: string,
@@ -966,6 +1161,19 @@ export class ProjectsController {
     const table = await this.db.seatingTable.create({ data: { ...body, projectId: id } });
     await this.logActivity(id, user.id, "GUEST_TABLE_CREATED", "SeatingTable", table.id, { subject: table.name });
     return table;
+  }
+  @Patch(":id/tables/:tableId") async updateTable(
+    @Param("id") id: string,
+    @Param("tableId") tableId: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: UpdateSeatingTableDto,
+  ) {
+    await this.owned(id, user.id, true);
+    const table = await this.db.seatingTable.findFirst({ where: { id: tableId, projectId: id }, select: { id: true, name: true } });
+    if (!table) throw new NotFoundException("Mesa não encontrada.");
+    const updated = await this.db.seatingTable.update({ where: { id: tableId }, data: body });
+    await this.logActivity(id, user.id, "GUEST_TABLE_UPDATED", "SeatingTable", tableId, { subject: updated.name, changedFields: Object.keys(body) });
+    return updated;
   }
   @Delete(":id/tables/:tableId") async deleteTable(
     @Param("id") id: string,
@@ -1280,10 +1488,12 @@ export class ProjectsController {
           dressCode: body.dressCode,
           supportContactName: body.supportContactName,
           supportContactPhone: body.supportContactPhone,
+          allowGuestRequests: body.allowGuestRequests ?? current.allowGuestRequests,
           isPublic: true,
         },
       });
       await this.logActivity(id, user.id, "INVITATION_PUBLISHED", "Invitation", updated.id);
+      await this.emailGuestsWithUpdates(id, "O convite digital foi actualizado. Consulta novamente os detalhes, o programa e as informações para convidados.", `invitation-updated/${updated.updatedAt.getTime()}`);
       return updated;
     }
     const invitation = await this.db.invitation.create({
@@ -1297,11 +1507,47 @@ export class ProjectsController {
         dressCode: body.dressCode,
         supportContactName: body.supportContactName,
         supportContactPhone: body.supportContactPhone,
+        allowGuestRequests: body.allowGuestRequests ?? false,
         isPublic: true,
       },
     });
     await this.logActivity(id, user.id, "INVITATION_PUBLISHED", "Invitation", invitation.id);
     return invitation;
+  }
+  @Post(":id/invitations/send") async sendGuestInvitations(
+    @Param("id") id: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: SendGuestInvitationsDto,
+  ) {
+    await this.owned(id, user.id, true);
+    const [invitation, project, guests] = await Promise.all([
+      this.db.invitation.findFirst({ where: { projectId: id, isPublic: true } }),
+      this.db.eventProject.findUnique({ where: { id }, select: { title: true, date: true, province: true } }),
+      this.db.guest.findMany({ where: { id: { in: body.guestIds }, projectId: id, email: { not: null } } }),
+    ]);
+    if (!invitation || !project) throw new BadRequestException("Publica primeiro o convite do evento.");
+    const guestById = new Map(guests.map((guest) => [guest.id, guest]));
+    let sent = 0;
+    for (const guestId of [...new Set(body.guestIds)]) {
+      const guest = guestById.get(guestId);
+      if (!guest?.email) continue;
+      const exposed = await exposeGuestRsvpToken(this.db, guest);
+      const eventUrl = `${webOrigin()}/c/${invitation.slug}?token=${encodeURIComponent(exposed.rsvpToken)}`;
+      const delivered = await this.email.sendGuestInvitation({
+        to: guest.email,
+        name: guest.name,
+        project: project.title,
+        date: project.date ? new Intl.DateTimeFormat("pt-AO", { dateStyle: "long", timeZone: "Africa/Luanda" }).format(project.date) : "Data por confirmar",
+        location: project.province || "",
+        url: eventUrl,
+        key: `${id}/${guest.id}/${invitation.updatedAt.getTime()}/${Date.now()}`,
+      });
+      if (delivered) {
+        sent += 1;
+        await this.db.guest.update({ where: { id: guest.id }, data: { invitationSentAt: new Date() } });
+      }
+    }
+    return { sent, requested: new Set(body.guestIds).size, message: sent ? `${sent} convite(s) enviado(s) por email.` : "Não foi possível enviar os convites. Confirma a configuração de email e tenta novamente." };
   }
   @Get(":id/quote-requests") async quotes(
     @Param("id") id: string,
@@ -1479,17 +1725,29 @@ export class ProjectsController {
         href: `/dashboard?tab=eventos&event=${encodeURIComponent(id)}`,
       });
       const eventUrl = `${webOrigin()}/dashboard?tab=eventos&event=${encodeURIComponent(id)}`;
-      await this.email.sendProjectShared(
-        invited.email,
-        {
-          recipient: invited.name,
-          inviter: user.name || user.email,
+      if (existing) {
+        await this.email.sendMemberAccessChanged({
+          to: invited.email,
+          name: invited.name,
+          actor: user.name || user.email,
           project: project?.title || "um evento",
-          role: body.role === "VIEWER" ? "Consulta" : "Edição",
-          url: eventUrl,
-        },
-        `${id}/${invited.id}/${Date.now()}`,
-      );
+          projectId: id,
+          detail: `O teu nível de acesso agora é ${body.role === "VIEWER" ? "Só consulta" : "Pode editar"}.`,
+          key: `${id}/${invited.id}/${body.role}/${Date.now()}`,
+        });
+      } else {
+        await this.email.sendProjectShared(
+          invited.email,
+          {
+            recipient: invited.name,
+            inviter: user.name || user.email,
+            project: project?.title || "um evento",
+            role: body.role === "VIEWER" ? "Consulta" : "Edição",
+            url: eventUrl,
+          },
+          `${id}/${invited.id}/${Date.now()}`,
+        );
+      }
       await this.logActivity(
         id,
         user.id,
@@ -1520,6 +1778,17 @@ export class ProjectsController {
     });
     if (!removed.count) throw new NotFoundException("Acesso não encontrado.");
     await this.logActivity(id, user.id, "PROJECT_MEMBER_REMOVED", "ProjectMember", userId, { subject: target?.user.name || target?.user.email });
+    if (target) {
+      const project = await this.db.eventProject.findUnique({ where: { id }, select: { title: true } });
+      await this.email.sendMemberAccessRemoved({
+        to: target.user.email,
+        name: target.user.name,
+        actor: user.name || user.email,
+        project: project?.title || "um evento",
+        projectId: id,
+        key: `${id}/${userId}/${Date.now()}`,
+      });
+    }
     return { ok: true };
   }
   private async assertTableCapacity(
@@ -1677,11 +1946,13 @@ export class PublicInvitationController {
         guestId: guest.id,
         eventKey: "all",
         status: body.status,
+        source: "PUBLIC_LINK",
         partySize: body.status === "ACCEPTED" ? (body.partySize ?? 1) : 0,
         note: body.note,
       },
       update: {
         status: body.status,
+        source: "PUBLIC_LINK",
         partySize: body.status === "ACCEPTED" ? (body.partySize ?? 1) : 0,
         note: body.note,
       },
@@ -1707,6 +1978,52 @@ export class PublicInvitationController {
       });
     }
     return response;
+  }
+  @Post(":slug/requests") async requestGuestInclusion(
+    @Param("slug") slug: string,
+    @Body() body: CreateGuestRequestDto,
+  ) {
+    const invitation = await this.db.invitation.findUnique({ where: { slug }, select: { id: true, projectId: true, isPublic: true, allowGuestRequests: true } });
+    if (!invitation?.isPublic || !invitation.allowGuestRequests)
+      throw new NotFoundException("Este convite não está a receber pedidos de inclusão.");
+    if (body.website?.trim()) return { ok: true };
+    const email = body.email?.trim().toLowerCase() || null;
+    const phone = body.phone?.trim() || null;
+    if (!email && !phone) throw new BadRequestException("Indica um email ou telefone para receberes a resposta.");
+    const duplicate = await this.db.guestRequest.findFirst({
+      where: {
+        projectId: invitation.projectId,
+        status: { in: [GuestRequestStatus.PENDING, GuestRequestStatus.APPROVED] },
+        OR: [
+          ...(email ? [{ email }] : []),
+          ...(phone ? [{ phone }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (duplicate) return { ok: true, alreadyReceived: true };
+    const request = await this.db.guestRequest.create({
+      data: {
+        projectId: invitation.projectId,
+        invitationId: invitation.id,
+        name: body.name.trim(),
+        email,
+        phone,
+        partySize: body.partySize,
+        requestedRsvp: body.requestedRsvp,
+        note: body.note?.trim() || null,
+      },
+      select: { id: true, name: true },
+    });
+    await notifyProjectMembers(this.db, invitation.projectId, {
+      type: NotificationType.RSVP_RECEIVED,
+      key: `guest-request:${request.id}`,
+      sourceId: request.id,
+      title: "Novo pedido para participar",
+      body: `${request.name} pediu para ser incluído/a na lista de convidados.`,
+      href: `/dashboard?tab=convidados&event=${encodeURIComponent(invitation.projectId)}`,
+    });
+    return { ok: true };
   }
 }
 

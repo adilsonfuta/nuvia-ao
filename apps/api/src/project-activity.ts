@@ -79,6 +79,7 @@ function describe(action: string, metadata: unknown): { title: string; detail: s
     case "GUESTS_IMPORTED": return { title: "Lista de convidados importada", detail: `${count} ${count === 1 ? "registo" : "registos"} adicionados.`, category };
     case "GUEST_UPDATED": return { title: "Dados de um convidado actualizados", detail: null, category };
     case "GUEST_DELETED": return { title: "Convidado removido da lista", detail: null, category };
+    case "GUEST_RSVP_RECORDED_MANUALLY": return { title: "Resposta de presença registada manualmente", detail: subject ? `${subject}${value.status === "ACCEPTED" ? ` · presença confirmada${typeof value.partySize === "number" && value.partySize > 1 ? ` para ${value.partySize} pessoas` : ""}` : " · não poderá estar presente"}` : null, category };
     case "GUEST_TABLE_CREATED": return { title: "Mesa criada", detail: subject || null, category };
     case "GUEST_TABLE_DELETED": return { title: "Mesa removida", detail: subject || null, category };
     case "EXPENSE_CREATED": return { title: "Despesa registada", detail: subject || null, category };
@@ -133,7 +134,7 @@ export class ProjectActivityController {
     const pageValue = Number(pageRaw);
     const page = Number.isSafeInteger(pageValue) && pageValue > 0 ? Math.min(pageValue, 1_000_000) : 1;
     const limitValue = Number(limitRaw);
-    const pageSize = Number.isSafeInteger(limitValue) && limitValue > 0 ? Math.min(limitValue, 50) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(limitValue) ? limitValue : 20;
     const category = categories.includes(categoryRaw as ActivityCategory) ? categoryRaw as ActivityCategory : "all";
     const categoryWhere = category === "all" ? {} : {
       OR: prefixes[category].map((prefix) => ({ action: { startsWith: prefix } })),

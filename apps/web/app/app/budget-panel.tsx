@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { formatAOA } from '../lib/format';
 import { luandaDateInput, luandaDateToIso } from '../lib/time';
+import { ListPagination, PaginatedList, useListPage } from '../lib/list-pagination';
 import './budget-panel.css';
 
 export type BudgetPayment = {
@@ -54,6 +55,9 @@ export function BudgetPanel({
   onDeletePayment: (expenseId: string, paymentId: string) => Promise<void>;
   onManageContributions: () => void;
 }) {
+  const [expensePage, setExpensePage] = useState(1);
+  const [expensePageSize, setExpensePageSize] = useState(10);
+  const { pageItems: visibleExpenses } = useListPage(expenses, expensePage, expensePageSize);
   const paidAmount = (expense: BudgetExpense) => expense.status === 'PAID'
     ? Number(expense.amount)
     : expense.payments.reduce((sum, payment) => sum + (payment.status === 'PAID' ? Number(payment.amount) : 0), 0);
@@ -147,7 +151,7 @@ export function BudgetPanel({
         <div className="budget-entry-actions"><button className="button button-primary compact">{editingId ? 'Guardar alterações' : 'Registar despesa'}</button>{editingId && <button type="button" className="button button-outline compact" onClick={onCancel}>Cancelar</button>}</div>
       </form>
       {expenses.length ? <>
-        <div className="budget-expense-table-wrap"><table className="budget-expense-table"><thead><tr><th>Despesa</th><th>Categoria</th><th>Estado</th><th>Prazo</th><th>Valor</th><th>Tarefa</th><th>Acções</th></tr></thead><tbody>{expenses.map((expense) => <tr key={expense.id}>
+        <div className="budget-expense-table-wrap"><table className="budget-expense-table"><thead><tr><th>Despesa</th><th>Categoria</th><th>Estado</th><th>Prazo</th><th>Valor</th><th>Tarefa</th><th>Acções</th></tr></thead><tbody>{visibleExpenses.map((expense) => <tr key={expense.id}>
           <td data-label="Despesa"><strong>{expense.title}</strong>{confirmedForExpense(expense) > 0 && <small className="budget-expense-contribution">Apoio confirmado · {formatAOA(confirmedForExpense(expense))}</small>}{expense.quoteRequest && <small className="budget-vendor-line">Fornecedor: {expense.quoteRequest.vendor.name}</small>}</td><td data-label="Categoria">{expense.category}</td>
           <td data-label="Estado"><span className={`expense-status ${expense.status.toLowerCase()}`}>{statusLabels[expense.status]}</span></td>
           <td data-label="Prazo">{expense.dueAt ? <span className={overdue(expense) ? 'expense-overdue' : ''}>{displayDate(expense.dueAt)}{overdue(expense) && <small>Atrasada</small>}</span> : '—'}</td>
@@ -155,7 +159,7 @@ export function BudgetPanel({
           <td data-label="Tarefa">{expense.task ? <button type="button" className="budget-task-link" onClick={() => onOpenTask(expense.task!.id)}>{expense.task.title} ↗</button> : '—'}</td>
           <td data-label="Acções"><div className="budget-row-actions"><button type="button" onClick={() => onEdit(expense)}>Editar</button><button type="button" onClick={() => onDelete(expense.id)}>Remover</button></div></td>
         </tr>)}</tbody></table></div>
-        <div className="budget-expense-cards">{expenses.map((expense) => <article className="budget-expense-card" key={expense.id}>
+        <div className="budget-expense-cards">{visibleExpenses.map((expense) => <article className="budget-expense-card" key={expense.id}>
           <header><strong>{expense.title}</strong><span className={`expense-status ${expense.status.toLowerCase()}`}>{statusLabels[expense.status]}</span></header>
           {confirmedForExpense(expense) > 0 && <p className="budget-expense-contribution">Apoio confirmado · {formatAOA(confirmedForExpense(expense))}</p>}
           <div className="budget-expense-card-meta"><span>{expense.category}</span><strong>{formatAOA(Number(expense.amount))}</strong></div>
@@ -164,22 +168,23 @@ export function BudgetPanel({
           {expense.task && <button type="button" className="budget-task-link" onClick={() => onOpenTask(expense.task!.id)}>Tarefa: {expense.task.title} ↗</button>}
           <footer><button type="button" onClick={() => onEdit(expense)}>Editar</button><button type="button" onClick={() => onDelete(expense.id)}>Remover</button></footer>
         </article>)}</div>
+        <ListPagination page={expensePage} pageSize={expensePageSize} total={expenses.length} label="despesas" onPageChange={setExpensePage} onPageSizeChange={(size) => { setExpensePageSize(size); setExpensePage(1); }} />
         {paymentError && <p className="form-error" role="alert">{paymentError}</p>}
         <section className="budget-payment-plans" aria-label="Planos de pagamento das despesas">
           <div className="budget-section-heading"><div><p className="eyebrow">Sinais e prestações</p><h3>Plano de pagamentos</h3></div></div>
-          {expenses.map((expense) => {
+          {visibleExpenses.map((expense) => {
             const payments = expense.payments ?? [];
             const paid = paidAmount(expense);
             const remaining = Math.max(0, Number(expense.amount) - paid);
             const draft = paymentDrafts[expense.id] ?? { title: '', amount: '', dueAt: '' };
             return <details className="budget-payment-expense" key={expense.id}>
               <summary><span><strong>{expense.title}</strong><small>{payments.length ? `${payments.filter(item => item.status === 'PAID').length} de ${payments.length} prestações pagas` : 'Sem prestações registadas'}</small></span><span><strong>{formatAOA(remaining)}</strong><small>por pagar</small></span></summary>
-              {payments.length > 0 && <div className="budget-payment-list">{payments.map(payment => <article key={payment.id}>
+              {payments.length > 0 && <PaginatedList items={payments} label="prestações" className="budget-payment-list">{payment => <article key={payment.id}>
                 <div><strong>{payment.title}</strong><small>{payment.dueAt ? `Prazo · ${displayDate(payment.dueAt)}` : 'Sem prazo definido'}{payment.paidAt ? ` · Pago · ${displayDate(payment.paidAt)}` : ''}</small></div>
                 <strong>{formatAOA(Number(payment.amount))}</strong>
                 <span className={`expense-status ${payment.status === 'PAID' ? 'paid' : 'committed'}`}>{payment.status === 'PAID' ? 'Pago' : 'Por pagar'}</span>
                 <div className="budget-row-actions"><button type="button" disabled={Boolean(paymentBusyId)} onClick={() => void updatePayment(expense, payment)}>{paymentBusyId === payment.id ? 'A guardar…' : payment.status === 'PAID' ? 'Reabrir' : 'Marcar pago'}</button>{payment.status === 'PENDING' && <button type="button" disabled={Boolean(paymentBusyId)} onClick={() => void deletePayment(expense, payment)}>Remover</button>}</div>
-              </article>)}</div>}
+              </article>}</PaginatedList>}
               {expense.status !== 'PAID' && <form className="budget-payment-form" onSubmit={event => void addPayment(event, expense)}>
                 <label>Descrição<input required minLength={2} maxLength={120} value={draft.title} onChange={event => setPaymentDrafts(current => ({ ...current, [expense.id]: { ...draft, title: event.target.value } }))} placeholder="Ex.: Sinal"/></label>
                 <label>Valor (Kz)<input required type="number" min="0.01" step="any" value={draft.amount} onChange={event => setPaymentDrafts(current => ({ ...current, [expense.id]: { ...draft, amount: event.target.value } }))} placeholder="0"/></label>

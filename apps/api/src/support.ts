@@ -37,13 +37,19 @@ export class SupportController {
   constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
 
   @Get('my-requests')
-  myRequests(@CurrentUser() user: SessionUser) {
-    return this.db.supportRequest.findMany({
-      where: { userId: user.id },
+  async myRequests(@CurrentUser() user: SessionUser, @Query('page') pageRaw?: string, @Query('pageSize') pageSizeRaw?: string) {
+    const page = Math.max(1, Math.min(10000, Number.parseInt(pageRaw ?? '1', 10) || 1));
+    const requestedPageSize = /^\d+$/.test(pageSizeRaw ?? '') ? Number(pageSizeRaw) : 10;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 10;
+    const where = { userId: user.id };
+    const [items, total] = await Promise.all([this.db.supportRequest.findMany({
+      where,
       select: { id: true, subject: true, message: true, status: true, response: true, respondedAt: true, createdAt: true, updatedAt: true },
       orderBy: { updatedAt: 'desc' },
-      take: 50,
-    });
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }), this.db.supportRequest.count({ where })]);
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
   @Post('requests')
@@ -63,10 +69,11 @@ export class SupportController {
 
   @Get('requests')
   @UseGuards(SupportStaffGuard)
-  async requests(@Query('status') status?: string, @Query('q') search?: string, @Query('page') pageValue?: string) {
+  async requests(@Query('status') status?: string, @Query('q') search?: string, @Query('page') pageValue?: string, @Query('pageSize') pageSizeValue?: string) {
     const statuses = Object.values(SupportRequestStatus);
     const page = Math.max(1, Math.min(10000, Number.parseInt(pageValue ?? '1', 10) || 1));
-    const pageSize = 25;
+    const requestedPageSize = /^\d+$/.test(pageSizeValue ?? '') ? Number(pageSizeValue) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
     const query = search?.trim().slice(0, 100);
     const where = {
       ...(status && statuses.includes(status as SupportRequestStatus) ? { status: status as SupportRequestStatus } : {}),

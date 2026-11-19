@@ -27,6 +27,7 @@ import { Transform, Type } from "class-transformer";
 import {
   IsBoolean,
   IsEnum,
+  IsEmail,
   IsNumber,
   IsOptional,
   IsString,
@@ -38,6 +39,7 @@ import {
 import { ContributionPaymentMethod, ContributionStatus, NotificationType } from "@casar/database";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
+import { EmailService } from "./email";
 import { notifyProjectMembers } from "./notifications";
 
 const proofDirectory = () => resolve(process.env.PRIVATE_UPLOAD_STORAGE_DIR || join(process.cwd(), "data", "private-contribution-proofs"));
@@ -56,6 +58,7 @@ class SaveContributionCampaignDto {
 
 class PublicContributionDto {
   @IsOptional() @IsString() @MaxLength(120) contributorName?: string;
+  @IsOptional() @IsEmail() @MaxLength(180) contributorEmail?: string;
   @IsOptional() @Transform(({ value }) => value === true || value === "true") @IsBoolean() isAnonymous?: boolean;
   @Type(() => Number) @IsNumber() @Min(1) @Max(999999999999.99) amount!: number;
   @IsEnum(ContributionPaymentMethod) paymentMethod!: ContributionPaymentMethod;
@@ -78,7 +81,7 @@ const projectContributionInclude = {
 @UseGuards(SessionGuard)
 @Controller("projects/:id/contributions")
 export class ProjectContributionsController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
 
   private async member(projectId: string, userId: string, write = false) {
     const member = await this.db.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } } });
@@ -97,11 +100,13 @@ export class ProjectContributionsController {
     @CurrentUser() user: SessionUser,
     @Query("page") pageRaw = "1",
     @Query("status") statusRaw = "ALL",
+    @Query("pageSize") pageSizeRaw = "20",
   ) {
     await this.member(projectId, user.id);
     const n = /^\d+$/.test(pageRaw) ? Number(pageRaw) : 1;
     const page = Number.isSafeInteger(n) && n > 0 ? Math.min(n, 1_000_000) : 1;
-    const pageSize = 20;
+    const requestedPageSize = /^\d+$/.test(pageSizeRaw) ? Number(pageSizeRaw) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
     const status = Object.values(ContributionStatus).includes(statusRaw as ContributionStatus) ? statusRaw as ContributionStatus : "ALL";
     const where = { campaign: { projectId }, ...(status !== "ALL" ? { status } : {}) };
     const [campaign, contributions, total, pendingCount, confirmedAggregate] = await Promise.all([
@@ -156,7 +161,7 @@ export class ProjectContributionsController {
   ) {
     await this.member(projectId, user.id, true);
     if (body.status === ContributionStatus.PENDING) throw new BadRequestException("Escolhe confirmar ou recusar esta contribuição.");
-    const item = await this.db.eventContribution.findFirst({ where: { id: contributionId, campaign: { projectId } }, select: { id: true, status: true, amount: true } });
+    const item = await this.db.eventContribution.findFirst({ where: { id: contributionId, campaign: { projectId } }, select: { id: true, status: true, amount: true, contributorEmail: true, contributorName: true, isAnonymous: true, campaign: { select: { project: { select: { title: true } } } } } });
     if (!item) throw new NotFoundException("Contribuição não encontrada.");
     if (item.status !== ContributionStatus.PENDING) throw new BadRequestException("Só podes validar contribuições que ainda estão por confirmar.");
     const changed = await this.db.eventContribution.updateMany({
@@ -168,6 +173,7 @@ export class ProjectContributionsController {
     if (!updated) throw new NotFoundException("Contribuição não encontrada.");
     await this.db.auditLog.create({ data: { actorId: user.id, action: `PROJECT_CONTRIBUTION_${body.status}`, resource: "EventContribution", resourceId: item.id, metadata: { projectId, amount: Number(item.amount) } } });
     const { proofStorageKey, ...safe } = updated;
+    if (item.contributorEmail) void this.email.sendContributionDecision({ to: item.contributorEmail, name: item.isAnonymous ? null : item.contributorName, project: item.campaign.project.title, amount: Number(item.amount), confirmed: body.status === ContributionStatus.CONFIRMED, key: `${item.id}/${body.status}/${updated.reviewedAt?.getTime() ?? Date.now()}` });
     return { ...safe, hasProof: Boolean(proofStorageKey) };
   }
 
@@ -206,7 +212,7 @@ export class ProjectContributionsController {
 @ApiTags("Contribuições públicas")
 @Controller("contributions")
 export class PublicContributionsController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
 
   @Get(":token")
   async details(@Param("token") token: string, @Res({ passthrough: true }) response: Response) {
@@ -243,7 +249,7 @@ export class PublicContributionsController {
     @Body() body: PublicContributionDto,
     @UploadedFile() file?: ContributionUpload,
   ) {
-    const campaign = await this.db.contributionCampaign.findFirst({ where: { publicToken: token, enabled: true, project: { archivedAt: null } }, select: { id: true, projectId: true, proofRequired: true, allowExpenseSelection: true } });
+    const campaign = await this.db.contributionCampaign.findFirst({ where: { publicToken: token, enabled: true, project: { archivedAt: null } }, select: { id: true, projectId: true, proofRequired: true, allowExpenseSelection: true, project: { select: { title: true } } } });
     if (!campaign) throw new NotFoundException("Este link de contribuição não está disponível.");
     if (body.website?.trim()) throw new BadRequestException("Não foi possível registar esta contribuição.");
     const isAnonymous = body.isAnonymous === true;
@@ -265,6 +271,7 @@ export class PublicContributionsController {
       contribution = await this.db.eventContribution.create({ data: {
         campaignId: campaign.id,
         contributorName: isAnonymous ? null : contributorName,
+        contributorEmail: body.contributorEmail?.trim().toLowerCase() || null,
         isAnonymous,
         amount: body.amount,
         paymentMethod: body.paymentMethod,
@@ -284,6 +291,7 @@ export class PublicContributionsController {
         body: "Uma pessoa enviou um registo de contribuição que aguarda confirmação.",
         href: `/dashboard?tab=contributions&event=${encodeURIComponent(campaign.projectId)}`,
       }).catch(() => undefined);
+    void this.email.sendContributionReceived(campaign.projectId, campaign.project.title, Number(body.amount), contribution.id);
     return { id: contribution.id, status: contribution.status, message: "O registo foi enviado à organização do evento para confirmação." };
   }
 }

@@ -1,13 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { ApiError, api } from '../lib/api';
+import { ListPagination, useListPage } from '../lib/list-pagination';
 
 type SupportRequest = {
   id: string; subject: string; message: string; status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
   response: string | null; respondedAt: string | null; createdAt: string; updatedAt: string;
 };
+type SupportRequestPage = { items: SupportRequest[]; total: number; page: number; pageSize: number };
 
 const statusLabel: Record<SupportRequest['status'], string> = {
   OPEN: 'Recebido', IN_PROGRESS: 'Em análise', RESOLVED: 'Resolvido',
@@ -27,11 +29,13 @@ export default function SupportInbox() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [showAllRequests, setShowAllRequests] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalRequests, setTotalRequests] = useState(0);
 
-  async function load() {
-    const result = await api<SupportRequest[]>('/support/my-requests');
-    setRequests(result);
+  async function load(nextPage = page, nextPageSize = pageSize) {
+    const result = await api<SupportRequestPage>(`/support/my-requests?page=${nextPage}&pageSize=${nextPageSize}`);
+    setRequests(result.items); setTotalRequests(result.total); setPage(result.page); setPageSize(result.pageSize);
   }
 
   useEffect(() => {
@@ -48,10 +52,7 @@ export default function SupportInbox() {
     }).finally(() => setLoading(false));
   }, []);
 
-  const visibleRequests = useMemo(
-    () => showAllRequests ? requests : requests.slice(0, 5),
-    [requests, showAllRequests],
-  );
+  const { pageItems: visibleRequests } = useListPage(requests, page, pageSize);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -110,7 +111,7 @@ export default function SupportInbox() {
           </form>
 
           {signedIn && <section className="dash-panel support-user-history">
-            <div className="support-user-history-heading"><div><p className="eyebrow">A tua conta</p><h2>Os teus pedidos</h2></div><span>{requests.length}</span></div>
+            <div className="support-user-history-heading"><div><p className="eyebrow">A tua conta</p><h2>Os teus pedidos</h2></div><span>{totalRequests}</span></div>
             {requests.length ? <div className="support-user-request-list">
               {visibleRequests.map((item) => <details className="support-user-request" key={item.id}>
                 <summary>
@@ -122,7 +123,7 @@ export default function SupportInbox() {
                   {item.response ? <div className="support-response"><strong>Resposta da equipa</strong><p>{item.response}</p>{item.respondedAt && <small>{formatDate(item.respondedAt)}</small>}</div> : <small>A equipa ainda não respondeu.</small>}
                 </div>
               </details>)}
-              {requests.length > 5 && <button className="support-user-more" type="button" onClick={() => setShowAllRequests((value) => !value)}>{showAllRequests ? 'Mostrar menos' : `Ver os ${requests.length} pedidos`}</button>}
+              <ListPagination page={page} pageSize={pageSize} total={totalRequests} label="pedidos" onPageChange={(next) => void load(next)} onPageSizeChange={(size) => void load(1, size)} />
             </div> : <div className="support-user-empty"><span aria-hidden="true">♡</span><strong>Ainda não tens pedidos</strong><p>Quando enviares uma dúvida, poderás acompanhar a resposta aqui.</p></div>}
           </section>}
         </div>

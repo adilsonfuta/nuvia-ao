@@ -38,6 +38,7 @@ import {
 import { NotificationType, QuoteRequestStatus, VendorClaimStatus } from "@casar/database";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
+import { EmailService } from "./email";
 import { notifyProjectMembers } from "./notifications";
 
 const storageDirectory = () => resolve(process.env.PORTFOLIO_STORAGE_DIR || join(process.cwd(), "data", "vendor-portfolio"));
@@ -104,7 +105,7 @@ class VendorQuoteResponseDto {
 @UseGuards(SessionGuard)
 @Controller("vendor-portal")
 export class VendorPortalController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
 
   private async ownedVendor(vendorId: string, userId: string) {
     const vendor = await this.db.vendor.findUnique({ where: { id: vendorId } });
@@ -119,10 +120,12 @@ export class VendorPortalController {
     @Query("inquiryPage") inquiryPageRaw = "1",
     @Query("inquiryStatus") inquiryStatusRaw = "ALL",
     @Query("inquirySearch") inquirySearchRaw = "",
+    @Query("inquiryPageSize") inquiryPageSizeRaw = "10",
   ) {
     const requestedPage = /^\d+$/.test(inquiryPageRaw) ? Number(inquiryPageRaw) : 1;
     const inquiryPage = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? Math.min(requestedPage, 1_000_000) : 1;
-    const pageSize = 10;
+    const requestedPageSize = /^\d+$/.test(inquiryPageSizeRaw) ? Number(inquiryPageSizeRaw) : 10;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 10;
     const inquiryStatus = inquiryStatusRaw === "OPEN" || Object.values(QuoteRequestStatus).includes(inquiryStatusRaw as QuoteRequestStatus)
       ? inquiryStatusRaw
       : "ALL";
@@ -189,7 +192,7 @@ export class VendorPortalController {
   ) {
     const request = await this.db.quoteRequest.findFirst({
       where: { id: requestId, vendor: { ownerUserId: user.id } },
-      include: { vendor: { select: { name: true } }, review: true },
+      include: { vendor: { select: { name: true } }, project: { select: { title: true } }, user: { select: { id: true, name: true } }, review: true },
     });
     if (!request) throw new NotFoundException("Pedido não encontrado.");
     if (request.status === QuoteRequestStatus.HIRED || request.status === QuoteRequestStatus.CLOSED)
@@ -214,6 +217,7 @@ export class VendorPortalController {
         : `O fornecedor respondeu com uma proposta de ${new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA", maximumFractionDigits: 0 }).format(body.quotedAmount)}.`,
       href: `/dashboard?tab=fornecedores&event=${encodeURIComponent(request.projectId)}`,
     });
+    void this.email.sendVendorResponse({ userId: request.user.id, name: request.user.name, projectId: request.projectId, project: request.project.title, vendor: request.vendor.name, response: updated.responseNote, amount: updated.quotedAmount === null ? null : Number(updated.quotedAmount), key: `${request.id}/${updated.respondedAt?.getTime() ?? Date.now()}` });
     return updated;
   }
 

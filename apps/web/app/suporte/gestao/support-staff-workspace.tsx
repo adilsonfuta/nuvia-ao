@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { api } from '../../lib/api';
+import { ListPagination } from '../../lib/list-pagination';
 
 type Ticket = {
   id: string; subject: string; message: string; status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
@@ -27,6 +28,7 @@ export default function SupportStaffWorkspace() {
   const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [selectedId, setSelectedId] = useState('');
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
@@ -36,17 +38,18 @@ export default function SupportStaffWorkspace() {
 
   const selected = tickets.find((ticket) => ticket.id === selectedId) ?? null;
 
-  async function load(status = statusFilter, query = search, currentPage = page) {
+  async function load(status = statusFilter, query = search, currentPage = page, currentPageSize = pageSize) {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ page: String(currentPage) });
+      const params = new URLSearchParams({ page: String(currentPage), pageSize: String(currentPageSize) });
       if (status !== 'ALL') params.set('status', status);
       if (query.trim()) params.set('q', query.trim());
       const result = await api<TicketPage>(`/support/requests?${params.toString()}`);
       setTickets(result.items);
       setTotal(result.total);
       setPage(result.page);
+      setPageSize(result.pageSize);
       setSelectedId((current) => result.items.some((ticket) => ticket.id === current) ? current : result.items[0]?.id ?? '');
       setDraft('');
     } catch (cause) {
@@ -120,7 +123,7 @@ export default function SupportStaffWorkspace() {
                 <span className="support-inbox-date">{formatDate(ticket.updatedAt || ticket.createdAt)}</span>
               </button>;
             })}</div>
-            {total > 25 && <div className="support-inbox-pagination"><button type="button" className="button button-outline compact" disabled={page <= 1 || loading} onClick={() => void load(statusFilter, search, page - 1)}>Anterior</button><span>{page} / {Math.ceil(total / 25)}</span><button type="button" className="button button-outline compact" disabled={page * 25 >= total || loading} onClick={() => void load(statusFilter, search, page + 1)}>Seguinte</button></div>}
+            <ListPagination page={page} pageSize={pageSize} total={total} label="pedidos" onPageChange={(next) => void load(statusFilter, search, next)} onPageSizeChange={(size) => { setPageSize(size); void load(statusFilter, search, 1, size); }} />
           </> : <div className="support-inbox-state"><span aria-hidden="true">✓</span><strong>{search ? 'Nenhum pedido encontrado' : 'Caixa limpa'}</strong><p>{search ? 'Experimenta outro nome, email ou assunto.' : 'Não há pedidos neste estado.'}</p></div>}
         </section>
 

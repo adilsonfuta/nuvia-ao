@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { formatAOA } from "../lib/format";
+import { ListPagination } from "../lib/list-pagination";
 import "./contributions.css";
 
 type ContributionStatus = "PENDING" | "CONFIRMED" | "REJECTED";
@@ -17,6 +18,7 @@ const dateText = (value: string) => new Intl.DateTimeFormat("pt-AO", { dateStyle
 export function ContributionsPanel({ projectId, expenses, canEdit, onRefresh }: { projectId: string; expenses: ExpenseOption[]; canEdit: boolean; onRefresh: () => Promise<void> }) {
   const [data, setData] = useState<Result | null>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [status, setStatus] = useState("ALL");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -34,7 +36,7 @@ export function ContributionsPanel({ projectId, expenses, canEdit, onRefresh }: 
   const loadedCampaign = useRef("");
 
   const refresh = useCallback(async () => {
-    const params = new URLSearchParams({ page: String(page), status });
+    const params = new URLSearchParams({ page: String(page), status, pageSize: String(pageSize) });
     const next = await api<Result>(`/projects/${projectId}/contributions?${params.toString()}`);
     setData(next);
     const campaignStamp = next.campaign ? `${next.campaign.id}:${next.campaign.updatedAt}` : "none";
@@ -48,7 +50,7 @@ export function ContributionsPanel({ projectId, expenses, canEdit, onRefresh }: 
       setShowProgress(next.campaign?.showProgress ?? false);
       setGoalAmount(next.campaign?.goalAmount == null ? "" : String(next.campaign.goalAmount));
     }
-  }, [page, projectId, status]);
+  }, [page, pageSize, projectId, status]);
 
   useEffect(() => { void refresh().catch(e => setError(e instanceof Error ? e.message : "Não foi possível carregar as contribuições.")).finally(() => setLoading(false)); }, [refresh]);
   useEffect(() => { setOrigin(window.location.origin); }, []);
@@ -105,7 +107,7 @@ export function ContributionsPanel({ projectId, expenses, canEdit, onRefresh }: 
         {allowExpenseSelection && <p className="contribution-private-note">Serão mostradas no formulário público apenas as despesas ainda não marcadas como pagas. O público não verá os valores, nomes ou comprovativos das contribuições.</p>}
         <button className="button button-primary" disabled={busy}>{busy ? "A guardar…" : data.campaign ? "Guardar definições" : "Criar link de contribuição"}</button>
       </form> : <p className="contribution-private-note">Apenas pessoas com permissão de edição podem alterar estas definições.</p>}
-      {data.campaign && <div className="contribution-share-box"><label>Link partilhável<input readOnly value={data.campaign.enabled ? `${origin}${data.campaign.sharePath}` : "Activa o link para o partilhar."}/></label><div>{data.campaign.enabled && <button type="button" className="button button-outline compact" onClick={() => void copyLink()}>Copiar link</button>}{canEdit && <button type="button" className="contribution-rotate" disabled={busy} onClick={() => void rotateLink()}>Gerar novo link</button>}</div><small>O link não mostra a lista de contribuições. Ao gerar outro, o anterior deixa de funcionar.</small></div>}
+      {data.campaign && <div className="contribution-share-box"><label>Link partilhável<input readOnly value={data.campaign.enabled ? `${origin}${data.campaign.sharePath}` : "Activa o link para o partilhar."}/></label><div>{data.campaign.enabled && <><a className="button button-outline compact" href={data.campaign.sharePath} target="_blank" rel="noreferrer">Pré-visualizar ↗</a><button type="button" className="button button-outline compact" onClick={() => void copyLink()}>Copiar link</button></>}{canEdit && <button type="button" className="contribution-rotate" disabled={busy} onClick={() => void rotateLink()}>Gerar novo link</button>}</div><small>O link não mostra a lista de contribuições. Ao gerar outro, o anterior deixa de funcionar.</small></div>}
     </section>
 
     <section className="dash-panel contribution-list-panel"><header className="contribution-list-heading"><div><p className="eyebrow">Registos privados do evento</p><h2>Contribuições recebidas</h2><p>Comprovativos disponíveis apenas para membros deste evento.</p></div><label>Estado<select value={status} onChange={e => { setPage(1); setStatus(e.target.value); }}><option value="ALL">Todas</option><option value="PENDING">Por confirmar</option><option value="CONFIRMED">Confirmadas</option><option value="REJECTED">Recusadas</option></select></label></header>
@@ -115,7 +117,7 @@ export function ContributionsPanel({ projectId, expenses, canEdit, onRefresh }: 
         {item.message && <p className="contribution-message">{item.message}</p>}{item.reviewNote && item.status !== "PENDING" && <p className="contribution-review-note">Nota da organização: {item.reviewNote}</p>}
         <div className="contribution-card-actions">{item.hasProof ? <a className="contribution-proof-link" href={`/api/v1/projects/${projectId}/contributions/${item.id}/proof`} target="_blank" rel="noreferrer">Descarregar comprovativo ↗</a> : <small>Sem comprovativo</small>}{item.status === "PENDING" && canEdit && <div><label className="visually-hidden" htmlFor={`contribution-note-${item.id}`}>Nota privada da revisão</label><input id={`contribution-note-${item.id}`} maxLength={500} value={reviewNote[item.id] ?? ""} onChange={e => setReviewNote(current => ({ ...current, [item.id]: e.target.value }))} placeholder="Nota opcional"/><button type="button" className="button button-primary compact" disabled={busy} onClick={() => void review(item, "CONFIRMED")}>Confirmar</button><button type="button" className="button button-outline compact" disabled={busy} onClick={() => void review(item, "REJECTED")}>Recusar</button></div>}{canEdit && <button type="button" className="contribution-delete" disabled={busy} onClick={() => void remove(item)}>Apagar registo</button>}</div>
       </article>)}</div> : <div className="contribution-empty"><span>↗</span><h3>{status === "ALL" ? "Ainda não há contribuições" : "Nenhum registo neste estado"}</h3><p>{status === "ALL" ? "Quando alguém enviar um apoio, o registo aparece aqui para validação." : "Escolhe outro estado para consultar os registos."}</p></div>}
-      {data.pagination.totalPages > 1 && <nav className="contribution-pagination" aria-label="Paginação das contribuições"><button type="button" className="button button-outline compact" disabled={page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}>← Anterior</button><span>Página {page} de {data.pagination.totalPages} · {data.pagination.total} registos</span><button type="button" className="button button-outline compact" disabled={page >= data.pagination.totalPages} onClick={() => setPage(value => Math.min(data.pagination.totalPages, value + 1))}>Seguinte →</button></nav>}
+      <ListPagination page={page} pageSize={data.pagination.pageSize} total={data.pagination.total} label="contribuições" onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
     </section>
     {!expenses.length && <p className="contribution-private-note">Ainda não há despesas no orçamento. Podes receber contribuições gerais; adiciona despesas para permitir que as pessoas indiquem o que pretendem apoiar.</p>}
     {expenses.length > 0 && allowExpenseSelection && <span className="visually-hidden">{expenses.length} despesas disponíveis para escolha no link público.</span>}

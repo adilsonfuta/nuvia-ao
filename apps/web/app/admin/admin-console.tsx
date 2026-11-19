@@ -2,6 +2,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "../lib/api";
+import { ListPagination, PaginatedList, slicePage } from "../lib/list-pagination";
 import { formatAOA } from "../lib/format";
 import { VendorModerationWorkspace } from "./vendor-moderation-workspace";
 import SupportStaffWorkspace from "../suporte/gestao/support-staff-workspace";
@@ -79,6 +80,7 @@ type VendorApplication = {
   vendorId: string | null;
 };
 type AdminAudit = { id: string; action: string; resource: string; resourceId: string; metadata: Record<string, unknown> | null; createdAt: string; actor: { name: string | null; email: string } };
+type AdminAuditPage = { items: AdminAudit[]; total: number; page: number; pageSize: number; totalPages: number };
 type PlatformConfig = { vendorCategories: string[]; provinces: string[] };
 type AdminAccount = { id: string; name: string | null; email: string; role: "USER" | "SUPPORT" | "MODERATOR" | "ADMIN"; accountStatus: "ACTIVE" | "SUSPENDED"; createdAt: string; lastLoginAt: string | null; suspendedAt: string | null; suspensionReason: string | null; _count: { projects: number; supportRequests: number } };
 type AdminAccountPage = { items: AdminAccount[]; total: number; page: number; pageSize: number; activeCount: number; suspendedCount: number };
@@ -112,6 +114,8 @@ const angolaProvinces = [
 ];
 
 export default function AdminConsole() {
+  const [adminListPage, setAdminListPage] = useState(1);
+  const [adminListPageSize, setAdminListPageSize] = useState(10);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [venues, setVenues] = useState<Venue[]>([]);
   const [guides, setGuides] = useState<Guide[]>([]);
@@ -119,7 +123,10 @@ export default function AdminConsole() {
   const [offices, setOffices] = useState<Office[]>([]);
   const [applications, setApplications] = useState<VendorApplication[]>([]);
   const [audit, setAudit] = useState<AdminAudit[]>([]);
-  const [accounts, setAccounts] = useState<AdminAccountPage>({ items: [], total: 0, page: 1, pageSize: 25, activeCount: 0, suspendedCount: 0 });
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditPageSize, setAuditPageSize] = useState(20);
+  const [accounts, setAccounts] = useState<AdminAccountPage>({ items: [], total: 0, page: 1, pageSize: 20, activeCount: 0, suspendedCount: 0 });
   const [currentRole, setCurrentRole] = useState("");
   const [accountSearch, setAccountSearch] = useState("");
   const [accountStatusFilter, setAccountStatusFilter] = useState("ALL");
@@ -226,7 +233,7 @@ export default function AdminConsole() {
       return;
     }
     if (requestedTab === "support") setTab("support");
-    const accountParams = new URLSearchParams({ page: "1" });
+    const accountParams = new URLSearchParams({ page: "1", pageSize: String(accounts.pageSize) });
     if (accountSearch.trim()) accountParams.set("q", accountSearch.trim());
     if (accountStatusFilter !== "ALL") accountParams.set("status", accountStatusFilter);
     if (accountRoleFilter !== "ALL") accountParams.set("role", accountRoleFilter);
@@ -239,11 +246,11 @@ export default function AdminConsole() {
       api<Source[]>("/admin/legal/sources"),
       api<Office[]>("/admin/registry-offices"),
       api<VendorApplication[]>("/admin/vendor-applications"),
-      api<AdminAudit[]>("/admin/audit"),
+      api<AdminAuditPage>(`/admin/audit?page=1&pageSize=${auditPageSize}`),
       api<PlatformConfig>("/admin/config"),
       auth.user.role === "ADMIN"
         ? api<AdminAccountPage>(`/admin/accounts?${accountParams.toString()}`)
-        : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 25, activeCount: 0, suspendedCount: 0 }),
+        : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 20, activeCount: 0, suspendedCount: 0 }),
       api<{ total: number }>("/support/requests?status=OPEN&page=1"),
     ]);
     setVendors(v);
@@ -252,7 +259,7 @@ export default function AdminConsole() {
     setSources(s);
     setOffices(o);
     setApplications(a);
-    setAudit(h);
+    setAudit(h.items); setAuditTotal(h.total); setAuditPage(h.page); setAuditPageSize(h.pageSize);
     setAccounts(accountPageResult);
     setOpenSupportCount(openSupport.total);
     setPlatformConfig({ vendorCategories: c.vendorCategories ?? [], provinces: c.provinces ?? [] });
@@ -302,7 +309,7 @@ export default function AdminConsole() {
     createdFrom: accountCreatedFrom,
     createdTo: accountCreatedTo,
   }) {
-    const params = new URLSearchParams({ page: String(page) });
+    const params = new URLSearchParams({ page: String(page), pageSize: String(accounts.pageSize) });
     if (filters.search.trim()) params.set("q", filters.search.trim());
     if (filters.status !== "ALL") params.set("status", filters.status);
     if (filters.role !== "ALL") params.set("role", filters.role);
@@ -314,6 +321,12 @@ export default function AdminConsole() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Não foi possível pesquisar as contas.");
     }
+  }
+  async function loadAudit(page: number, pageSize = auditPageSize) {
+    try {
+      const result = await api<AdminAuditPage>(`/admin/audit?page=${page}&pageSize=${pageSize}`);
+      setAudit(result.items); setAuditTotal(result.total); setAuditPage(result.page); setAuditPageSize(result.pageSize);
+    } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível carregar o histórico administrativo."); }
   }
   async function saveAccountStatus() {
     if (!accountDecision || accountDecision.reason.trim().length < 8) return;
@@ -640,6 +653,9 @@ export default function AdminConsole() {
     const matchesSearch = !query || [venue.name, venue.venueType, venue.province, venue.municipality, venue.address].some((value) => value?.toLocaleLowerCase("pt-AO").includes(query));
     return matchesSearch && (venueStatusFilter === "ALL" || (venueStatusFilter === "PENDING" ? ["DRAFT", "PENDING"].includes(venue.status) : venue.status === venueStatusFilter));
   });
+  const pagedVendors = slicePage(visibleVendors, adminListPage, adminListPageSize);
+  const pagedVenues = slicePage(visibleVenues, adminListPage, adminListPageSize);
+  const pagedApplications = slicePage(visibleApplications, adminListPage, adminListPageSize);
   const hasAccountFilters = Boolean(accountSearch.trim() || accountStatusFilter !== "ALL" || accountRoleFilter !== "ALL" || accountCreatedFrom || accountCreatedTo);
   function auditSummary(entry: AdminAudit) {
     const metadata = entry.metadata ?? {};
@@ -732,10 +748,11 @@ export default function AdminConsole() {
               <div className={`admin-grid ${showVenueForm ? "with-form" : "list-only"}`}>
                 <section className="dash-panel">
                   <div className="admin-filter-bar"><label className="admin-search">Pesquisar<input value={venueSearch} onChange={event => setVenueSearch(event.target.value)} placeholder="Nome, tipo ou localização" /></label><label>Estado<select value={venueStatusFilter} onChange={event => setVenueStatusFilter(event.target.value)}><option value="ALL">Todos</option><option value="PENDING">Por preparar/rever</option><option value="PUBLISHED">Publicados</option><option value="SUSPENDED">Suspensos</option></select></label><button type="button" className="button button-outline compact" onClick={() => { setVenueSearch(""); setVenueStatusFilter("ALL"); }}>Limpar</button></div>
-                  {visibleVenues.length ? visibleVenues.map(venue => <article className="admin-row venue-admin-row" key={venue.id}>
+                  {visibleVenues.length ? pagedVenues.map(venue => <article className="admin-row venue-admin-row" key={venue.id}>
                     <span><strong>{venue.name}</strong><small>{venue.venueType} · {[venue.municipality, venue.province].filter(Boolean).join(", ") || "Localização por preencher"}</small><small>{venue.capacityMax ? `${venue.capacityMin ?? 1}–${venue.capacityMax} pessoas` : "Capacidade por confirmar"} · {venue.priceFrom || venue.priceTo ? `${formatAOA(venue.priceFrom)} – ${formatAOA(venue.priceTo)}` : "Preço sob consulta"}</small><small>Estado: {venue.status === "DRAFT" ? "Rascunho" : venue.status === "PENDING" ? "Por rever" : venue.status === "PUBLISHED" ? "Publicado" : "Suspenso"}{venue.verifiedAt ? ` · Dados revistos em ${new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeZone: "Africa/Luanda" }).format(new Date(venue.verifiedAt))}` : ""}</small><small>{venue.phone || venue.email || venue.websiteUrl || "Contacto por preencher"}{venue.galleryUrls.length ? ` · ${venue.galleryUrls.length} fotografia(s)` : " · Sem fotografias"}</small></span>
                     <div>{venue.status === "PUBLISHED" && <a href={`/espacos/${venue.slug}`} target="_blank" rel="noreferrer">Pré-visualizar</a>}<button type="button" disabled={savingAction} onClick={() => editVenue(venue)}>Editar</button>{venue.status === "PUBLISHED" ? <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "SUSPENDED")}>Suspender</button> : venue.status === "SUSPENDED" ? <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "PENDING")}>Voltar para revisão</button> : <button type="button" disabled={savingAction} onClick={() => void updateVenueStatus(venue, "PUBLISHED")}>Confirmar e publicar</button>}</div>
                   </article>) : <p className="empty-copy">{venueSearch || venueStatusFilter !== "ALL" ? "Não encontrámos espaços com estes filtros." : "Ainda não há espaços registados. Adiciona os primeiros espaços reais para preparar o catálogo."}</p>}
+                  <ListPagination page={adminListPage} pageSize={adminListPageSize} total={visibleVenues.length} label="espaços" onPageChange={setAdminListPage} onPageSizeChange={(size) => { setAdminListPageSize(size); setAdminListPage(1); }} />
                 </section>
                 {showVenueForm && <form className="dash-panel admin-form venue-admin-form" onSubmit={saveVenue}>
                   <h2>{editingVenueId ? "Editar espaço" : "Registar espaço"}</h2>
@@ -770,7 +787,7 @@ export default function AdminConsole() {
               <section className="dash-panel">
                 <div className="admin-filter-bar"><label className="admin-search">Pesquisar<input value={vendorSearch} onChange={e => setVendorSearch(e.target.value)} placeholder="Nome, categoria, local ou contacto"/></label><label>Estado<select value={vendorStatusFilter} onChange={e => setVendorStatusFilter(e.target.value)}><option value="PENDING">Por rever</option><option value="ALL">Todos</option><option value="ACTIVE">Activos</option><option value="SUSPENDED">Suspensos</option><option value="DRAFT">Rascunhos</option></select></label><label>Categoria<select value={vendorCategoryFilter} onChange={e => setVendorCategoryFilter(e.target.value)}><option value="">Todas</option>{platformConfig.vendorCategories.map(item => <option key={item}>{item}</option>)}</select></label><label>Província<select value={vendorProvinceFilter} onChange={e => setVendorProvinceFilter(e.target.value)}><option value="">Todas</option>{platformConfig.provinces.map(item => <option key={item}>{item}</option>)}</select></label><button type="button" className="button button-outline compact" onClick={() => { setVendorSearch(""); setVendorCategoryFilter(""); setVendorProvinceFilter(""); }}>Limpar</button></div>
                 {visibleVendors.length ? (
-                  visibleVendors.map((v) => (
+                  pagedVendors.map((v) => (
                     <div className="admin-vendor-item" key={v.id}>
                     <article className="admin-row">
                       <span>
@@ -819,6 +836,7 @@ export default function AdminConsole() {
                 ) : (
                   <p className="empty-copy">{vendorStatusFilter === "PENDING" && !vendorSearch && !vendorCategoryFilter && !vendorProvinceFilter ? "A fila de revisão está limpa. Ainda não há perfis pendentes." : "Não encontrámos fornecedores com estes filtros."}</p>
                 )}
+                <ListPagination page={adminListPage} pageSize={adminListPageSize} total={visibleVendors.length} label="fornecedores" onPageChange={setAdminListPage} onPageSizeChange={(size) => { setAdminListPageSize(size); setAdminListPage(1); }} />
               </section>
               {showVendorForm && (
               <form
@@ -983,7 +1001,7 @@ export default function AdminConsole() {
               </p>
               <div className="admin-filter-bar application-filter-bar"><label>Fila<select value={applicationFilter} onChange={e => setApplicationFilter(e.target.value)}><option value="OPEN">Em análise ({openApplications.length})</option><option value="ALL">Todas</option><option value="NEW">Novas</option><option value="CONTACTED">Contactadas</option><option value="CONVERTED">Convertidas</option><option value="DECLINED">Recusadas</option></select></label></div>
               {visibleApplications.length ? (
-                visibleApplications.map((application) => (
+                pagedApplications.map((application) => (
                   <article
                     className="admin-row vendor-application-row"
                     key={application.id}
@@ -1046,13 +1064,14 @@ export default function AdminConsole() {
                   Ainda não há candidaturas para rever.
                 </p>
               )}
+              <ListPagination page={adminListPage} pageSize={adminListPageSize} total={visibleApplications.length} label="candidaturas" onPageChange={setAdminListPage} onPageSizeChange={(size) => { setAdminListPageSize(size); setAdminListPage(1); }} />
             </section>
           )}
           {tab === "guides" && (
             <div className="admin-grid">
               <section className="dash-panel">
                 <h2>Guias</h2>
-                {guides.map((g) => (
+                <PaginatedList items={guides} label="guias">{(g) => (
                   <article className="admin-row" key={g.id}>
                     <span>
                       <strong>{g.title}</strong>
@@ -1062,7 +1081,7 @@ export default function AdminConsole() {
                       {g.status === "PUBLISHED" ? "Retirar" : "Publicar"}
                     </button>
                   </article>
-                ))}
+                )}</PaginatedList>
               </section>
               <form className="dash-panel admin-form" onSubmit={createGuide}>
                 <h2>Escrever guia</h2>
@@ -1117,7 +1136,7 @@ export default function AdminConsole() {
             <div className="admin-legal-grid">
               <section className="dash-panel">
                 <h2>Fontes legais registadas</h2>
-                {sources.map((s) => (
+                <PaginatedList items={sources} label="fontes">{(s) => (
                   <article className="admin-row" key={s.id}>
                     <span>
                       <strong>{s.title}</strong>
@@ -1137,7 +1156,7 @@ export default function AdminConsole() {
                       </button>
                     )}
                   </article>
-                ))}
+                )}</PaginatedList>
                 {!sources.length && (
                   <p className="empty-copy">
                     Nenhuma fonte registada; os requisitos mantêm-se por
@@ -1278,7 +1297,7 @@ export default function AdminConsole() {
               </form>
               <section className="dash-panel">
                 <h2>Conservatórias</h2>
-                {offices.map((o) => (
+                <PaginatedList items={offices} label="conservatórias">{(o) => (
                   <article className="admin-row" key={o.id}>
                     <span>
                       <strong>{o.name}</strong>
@@ -1294,7 +1313,7 @@ export default function AdminConsole() {
                       </button>
                     )}
                   </article>
-                ))}
+                )}</PaginatedList>
                 {!offices.length && (
                   <p className="empty-copy">
                     Nenhum contacto registado. Não há dados publicados no
@@ -1373,7 +1392,7 @@ export default function AdminConsole() {
                     {(account.role === "USER" || account.role === "SUPPORT") && <button type="button" className={account.accountStatus === "ACTIVE" ? "button button-outline compact danger" : "button button-outline compact"} disabled={savingAction} onClick={() => void changeAccountStatus(account)}>{account.accountStatus === "ACTIVE" ? "Suspender conta" : "Reactivar conta"}</button>}
                   </div>
                 </article>) : <div className="admin-account-empty"><strong>{hasAccountFilters ? "Nenhuma conta corresponde aos filtros" : "Ainda não há contas para apresentar"}</strong><p>{hasAccountFilters ? "Altera os critérios ou limpa os filtros para ver outras contas." : "As contas criadas na plataforma aparecerão aqui."}</p>{hasAccountFilters && <button className="button button-outline compact" type="button" onClick={() => { setAccountSearch(""); setAccountStatusFilter("ALL"); setAccountRoleFilter("ALL"); setAccountCreatedFrom(""); setAccountCreatedTo(""); void loadAccounts(1, { search: "", status: "ALL", role: "ALL", createdFrom: "", createdTo: "" }); }}>Limpar filtros</button>}</div>}
-                {accounts.total > accounts.pageSize && <div className="admin-account-pagination"><button className="button button-outline compact" disabled={accounts.page <= 1} onClick={() => void loadAccounts(accounts.page - 1)}>Anterior</button><span>Página {accounts.page} de {Math.ceil(accounts.total / accounts.pageSize)}</span><button className="button button-outline compact" disabled={accounts.page * accounts.pageSize >= accounts.total} onClick={() => void loadAccounts(accounts.page + 1)}>Seguinte</button></div>}
+                <ListPagination page={accounts.page} pageSize={accounts.pageSize} total={accounts.total} label="contas" onPageChange={(next) => void loadAccounts(next)} onPageSizeChange={(size) => { setAccounts((current) => ({ ...current, pageSize: size })); void (async () => { const params = new URLSearchParams({ page: "1", pageSize: String(size) }); if (accountSearch.trim()) params.set("q", accountSearch.trim()); if (accountStatusFilter !== "ALL") params.set("status", accountStatusFilter); if (accountRoleFilter !== "ALL") params.set("role", accountRoleFilter); if (accountCreatedFrom) params.set("createdFrom", accountCreatedFrom); if (accountCreatedTo) params.set("createdTo", accountCreatedTo); try { setAccounts(await api<AdminAccountPage>(`/admin/accounts?${params}`)); } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível pesquisar as contas."); } })(); }} />
               </section>
               <p className="admin-account-footnote">Suspensões, reativações, alterações de papel e promoções administrativas ficam no histórico. A promoção exige a tua palavra-passe actual e confirmação do email da conta.</p>
             </section>
@@ -1383,8 +1402,8 @@ export default function AdminConsole() {
           {tab === "history" && (
             <section className="dash-panel admin-history-panel">
               <h2>Histórico administrativo</h2>
-              <p className="empty-copy">Últimas 100 alterações em contas, suporte, fornecedores, espaços e configurações.</p>
-              {audit.length ? audit.map(entry => <article className="admin-row" key={entry.id}><span><strong>{auditSummary(entry)}</strong><small>{entry.actor.name || entry.actor.email} · {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.createdAt))}</small><small>{entry.resource} · {entry.resourceId}</small></span></article>) : <p className="empty-copy">Ainda não há acções registadas.</p>}
+              <p className="empty-copy">{auditTotal} alterações em contas, suporte, fornecedores, espaços e configurações.</p>
+              {audit.length ? <>{audit.map(entry => <article className="admin-row" key={entry.id}><span><strong>{auditSummary(entry)}</strong><small>{entry.actor.name || entry.actor.email} · {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.createdAt))}</small><small>{entry.resource} · {entry.resourceId}</small></span></article>)}<ListPagination page={auditPage} pageSize={auditPageSize} total={auditTotal} label="alterações" onPageChange={(next) => void loadAudit(next)} onPageSizeChange={(size) => void loadAudit(1, size)} /></> : <p className="empty-copy">Ainda não há acções registadas.</p>}
             </section>
           )}
         </>
