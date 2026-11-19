@@ -1,5 +1,7 @@
 import type { ProjectKind, ProjectSummary } from "@casar/contracts";
 import { formatAOA } from "../lib/format";
+import { ListPagination, useListPage } from "../lib/list-pagination";
+import { useState } from "react";
 
 type Project = ProjectSummary;
 
@@ -32,6 +34,9 @@ export function EventManager({
   onRestore: (id: string) => void;
   restoringId: string;
 }) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const { pageItems } = useListPage(projects, page, pageSize);
   return (
     <section className="event-manager-page">
       <header className="event-manager-heading">
@@ -48,8 +53,8 @@ export function EventManager({
         </button>
       </header>
       {projects.length ? (
-        <div className="event-manager-grid">
-          {projects.map((project) => (
+        <><div className="event-manager-grid">
+          {pageItems.map((project) => (
             <article
               className={`event-manager-card ${project.id === activeId ? "active" : ""} ${project.archivedAt ? "archived" : ""}`}
               key={project.id}
@@ -118,6 +123,8 @@ export function EventManager({
             </article>
           ))}
         </div>
+        <ListPagination page={page} pageSize={pageSize} total={projects.length} label="eventos" onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
+        </>
       ) : (
         <div className="event-manager-empty">
           <p>Ainda não criaste projectos de evento.</p>

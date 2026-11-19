@@ -12,4 +12,6 @@ coverage
 /apps/api/data/vendor-portfolio/
 /apps/api/data/private-contribution-proofs/
 /apps/api/data/private-project-documents/
+/apps/api/data/guide-covers/
+/apps/api/data/venue-photos/
 packages/database/generated

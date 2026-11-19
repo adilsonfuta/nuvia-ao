@@ -34,16 +34,22 @@ export function createPersistentRateLimit(
     const contributionRequest = request.method === "POST" && /^\/api\/v1\/contributions\/[A-Za-z0-9_-]+(?:\?|$)/.test(path);
     const contributionLookup = request.method === "GET" && /^\/api\/v1\/contributions\/[A-Za-z0-9_-]+(?:\?|$)/.test(path);
     const projectDocumentUpload = request.method === "POST" && /^\/api\/v1\/projects\/[^/]+\/documents\/[^/]+\/file(?:\?|$)/.test(path);
+    const publicSupportRequest = request.method === "POST" && /^\/api\/v1\/support\/public-requests(?:\?|$)/.test(path);
+    const emailChangeRequest = request.method === "POST" && /^\/api\/v1\/auth\/email-change\/request(?:\?|$)/.test(path);
+    const guestInclusionRequest = request.method === "POST" && /^\/api\/v1\/invitations\/[^/]+\/requests(?:\?|$)/.test(path);
     const limited =
       path.startsWith("/api/v1/auth/login") ||
       path.startsWith("/api/v1/auth/register") ||
       path.startsWith("/api/v1/auth/password-reset/request") ||
       path.startsWith("/api/v1/auth/password-reset/reset") ||
+      emailChangeRequest ||
+      guestInclusionRequest ||
       path.startsWith("/api/v1/vendor-applications") ||
       uploadRequest ||
       projectDocumentUpload ||
       contributionRequest ||
       contributionLookup ||
+      publicSupportRequest ||
       /^\/api\/v1\/invitations\/[^/]+\/rsvp/.test(path);
     if (!limited) return next();
     void (async () => {
@@ -51,16 +57,18 @@ export function createPersistentRateLimit(
       const route = path.split("?")[0]
         .replace(/\/vendor-portal\/[^/]+\/portfolio$/, "/vendor-portal/:vendorId/portfolio")
         .replace(/\/contributions\/[A-Za-z0-9_-]+$/, "/contributions/:token")
+        .replace(/\/invitations\/[^/]+\/requests$/, "/invitations/:slug/requests")
         .replace(/\/[^/]+\/rsvp$/, "/:slug/rsvp");
-      const routeMax = uploadRequest || contributionRequest || projectDocumentUpload ? Math.min(max, 8) : contributionLookup ? Math.max(max, 60) : max;
-      const routeWindowMs = uploadRequest || contributionRequest || projectDocumentUpload ? Math.max(windowMs, 10 * 60_000) : windowMs;
+      const routeMax = guestInclusionRequest ? Math.min(max, 5) : emailChangeRequest ? Math.min(max, 3) : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.min(max, 8) : contributionLookup ? Math.max(max, 60) : max;
+      const routeWindowMs = guestInclusionRequest || emailChangeRequest ? Math.max(windowMs, 10 * 60_000) : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.max(windowMs, 10 * 60_000) : windowMs;
       const address = String(
         request.ip ?? request.socket?.remoteAddress ?? "unknown",
       );
       const keys = [`${address}:${request.method}:${route}`];
       if (
         (path.startsWith("/api/v1/auth/login") ||
-          path.startsWith("/api/v1/auth/password-reset/request")) &&
+          path.startsWith("/api/v1/auth/password-reset/request") ||
+          publicSupportRequest) &&
         typeof request.body?.email === "string"
       )
         keys.push(`account:${request.body.email.trim().toLowerCase()}`);

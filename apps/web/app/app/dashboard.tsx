@@ -27,9 +27,10 @@ import { ReportsPanel } from "./reports-panel";
 import { NotificationCenter } from "./notification-center";
 import { ActivityLogPanel } from "./activity-log-panel";
 import { DocumentsPanel } from "./documents-panel";
+import { ListPagination, PaginatedList, slicePage, useListPage } from "../lib/list-pagination";
 import type { ProjectKind, ProjectSummary } from "@casar/contracts";
 
-type User = { id: string; email: string; name: string | null; role?: "USER" | "MODERATOR" | "ADMIN" };
+type User = { id: string; email: string; name: string | null; role?: "USER" | "SUPPORT" | "MODERATOR" | "ADMIN"; emailEventNotifications?: boolean; weeklyDigestEnabled?: boolean };
 type Project = ProjectSummary & {
   budgetLimit: number | string | null;
   guestEstimate: number | null;
@@ -54,7 +55,7 @@ type Guest = {
   maxPartySize: number;
   seatingTableId: string | null;
   rsvpToken: string;
-  rsvps: { status: string; partySize: number }[];
+  rsvps: { status: string; partySize: number; source?: "PUBLIC_LINK" | "MANUAL" }[];
 };
 type Expense = BudgetExpense;
 type Invite = {
@@ -66,6 +67,7 @@ type Invite = {
   dressCode: string | null;
   supportContactName: string | null;
   supportContactPhone: string | null;
+  allowGuestRequests: boolean;
 };
 type InvitationTheme = Invite["theme"];
 const INVITATION_MESSAGE = "Será uma alegria celebrar este momento contigo.";
@@ -317,13 +319,35 @@ export default function Dashboard() {
   const [restoringProjectId, setRestoringProjectId] = useState("");
   const [archivingProject, setArchivingProject] = useState(false);
   const [data, setData] = useState<Detail | null>(null);
+  const [taskListPage, setTaskListPage] = useState(1);
+  const [taskListPageSize, setTaskListPageSize] = useState(10);
+  const [programPage, setProgramPage] = useState(1);
+  const [programPageSize, setProgramPageSize] = useState(10);
+  const [overduePage, setOverduePage] = useState(1);
+  const [overduePageSize, setOverduePageSize] = useState(10);
+  const [upcomingPage, setUpcomingPage] = useState(1);
+  const [upcomingPageSize, setUpcomingPageSize] = useState(10);
   const [tab, setTab] = useState<Tab>("overview");
   const [teamSection, setTeamSection] = useState<"access" | "history">("access");
   const [openNavGroup, setOpenNavGroup] = useState<string | null | undefined>(undefined);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [navigationReady, setNavigationReady] = useState(false);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileMenuOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileMenuOpen]);
   const [settingsView, setSettingsView] = useState<"event" | "account">(
     "event",
   );
+  const [savingEmailPreferences, setSavingEmailPreferences] = useState(false);
+  const [newEmailAddress, setNewEmailAddress] = useState("");
+  const [emailChangePassword, setEmailChangePassword] = useState("");
+  const [requestingEmailChange, setRequestingEmailChange] = useState(false);
+  const [emailChangeUrl, setEmailChangeUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -383,6 +407,7 @@ export default function Dashboard() {
   const [inviteDressCode, setInviteDressCode] = useState("");
   const [inviteSupportName, setInviteSupportName] = useState("");
   const [inviteSupportPhone, setInviteSupportPhone] = useState("");
+  const [allowGuestRequests, setAllowGuestRequests] = useState(false);
   const [publishingInvite, setPublishingInvite] = useState(false);
   const invitationDraftProject = useRef("");
   const skipUrlSync = useRef(false);
@@ -409,6 +434,7 @@ export default function Dashboard() {
       setInviteDressCode(savedInvite?.dressCode || "");
       setInviteSupportName(savedInvite?.supportContactName || "");
       setInviteSupportPhone(savedInvite?.supportContactPhone || "");
+      setAllowGuestRequests(savedInvite?.allowGuestRequests || false);
       invitationDraftProject.current = id;
     }
     setData(detail);
@@ -1072,6 +1098,7 @@ export default function Dashboard() {
           dressCode: inviteDressCode.trim() || null,
           supportContactName: inviteSupportName.trim() || null,
           supportContactPhone: inviteSupportPhone.trim() || null,
+          allowGuestRequests,
         }),
       });
       await loadDetail(selected);
@@ -1141,6 +1168,43 @@ export default function Dashboard() {
       );
     } finally {
       setChangingPassword(false);
+    }
+  }
+  async function updateEmailPreference(key: "emailEventNotifications" | "weeklyDigestEnabled", value: boolean) {
+    if (!user || savingEmailPreferences) return;
+    setSavingEmailPreferences(true);
+    try {
+      const updated = await api<Pick<User, "emailEventNotifications" | "weeklyDigestEnabled">>("/auth/email-preferences", {
+        method: "PATCH",
+        body: JSON.stringify({ [key]: value }),
+      });
+      setUser((current) => current ? { ...current, ...updated } : current);
+      setNotice("Preferências de email actualizadas.");
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível guardar as preferências de email.");
+    } finally {
+      setSavingEmailPreferences(false);
+    }
+  }
+  async function requestEmailChange(event: FormEvent) {
+    event.preventDefault();
+    if (requestingEmailChange) return;
+    setRequestingEmailChange(true);
+    setEmailChangeUrl("");
+    try {
+      const result = await api<{ message: string; devConfirmUrl?: string }>("/auth/email-change/request", {
+        method: "POST",
+        body: JSON.stringify({ newEmail: newEmailAddress, currentPassword: emailChangePassword }),
+      });
+      setEmailChangePassword("");
+      setNotice(result.message);
+      setError("");
+      setEmailChangeUrl(result.devConfirmUrl ?? "");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível iniciar a alteração do email.");
+    } finally {
+      setRequestingEmailChange(false);
     }
   }
   async function exportData() {
@@ -1309,6 +1373,13 @@ export default function Dashboard() {
   const upcomingTasks = tasksWithDeadlines
     .filter((task) => luandaDateInput(task.dueAt) >= todayInLuanda)
     .sort((a, b) => a.dueAt!.localeCompare(b.dueAt!));
+  const { pageItems: displayedTaskList } = useListPage(data?.tasks ?? [], taskListPage, taskListPageSize);
+  const sortedProgramEvents = (data?.events ?? []).slice().sort((a, b) => {
+    if (!a.startsAt) return b.startsAt ? 1 : 0;
+    if (!b.startsAt) return -1;
+    return a.startsAt.localeCompare(b.startsAt);
+  });
+  const { pageItems: displayedProgramEvents } = useListPage(sortedProgramEvents, programPage, programPageSize);
   const savedInvitation = data?.invitations[0];
   const displayedInvitationHeadline =
     inviteHeadline.trim() || data?.title || "O nosso evento";
@@ -1324,6 +1395,7 @@ export default function Dashboard() {
       || inviteDressCode.trim() !== (savedInvitation.dressCode || "")
       || inviteSupportName.trim() !== (savedInvitation.supportContactName || "")
       || inviteSupportPhone.trim() !== (savedInvitation.supportContactPhone || "")
+      || allowGuestRequests !== (savedInvitation.allowGuestRequests || false)
     : false;
   if (loading)
     return <main className="dashboard-loading">A preparar o teu espaço…</main>;
@@ -1350,18 +1422,25 @@ export default function Dashboard() {
     );
   return (
     <main className="dashboard-layout">
-      <aside className="dashboard-sidebar">
+      <aside className={`dashboard-sidebar${mobileMenuOpen ? " mobile-menu-open" : ""}`}>
         <a className="brand dashboard-brand" href="/dashboard" aria-label="Nuvia — voltar à dashboard">
           <Image className="nuvia-dashboard-logo" src="/brand/nuvia-logo.png" alt="Nuvia" width={240} height={75} priority />
         </a>
-        <nav aria-label="Navegação do projecto">
+        <button className="dashboard-mobile-menu-toggle" type="button" aria-label={mobileMenuOpen ? "Fechar menu" : "Abrir menu"} aria-expanded={mobileMenuOpen} aria-controls="dashboard-project-navigation" onClick={() => setMobileMenuOpen((open) => !open)}>
+          <span aria-hidden="true"><i /><i /><i /></span>
+          <span>{mobileMenuOpen ? "Fechar" : "Menu"}</span>
+        </button>
+        <button className="dashboard-mobile-logout" type="button" onClick={() => void logout()} aria-label="Terminar sessão">
+          <span aria-hidden="true">↪</span> Sair
+        </button>
+        <nav id="dashboard-project-navigation" aria-label="Navegação do projecto">
           {DASHBOARD_PRIMARY_TABS.filter(
             (item) => item.key !== "events" || projects.length > 0,
           ).map((item) => (
             <button
               className={`dashboard-nav-primary ${tab === item.key ? "current" : ""}`}
               aria-current={tab === item.key ? "page" : undefined}
-              onClick={() => { setTab(item.key); setOpenNavGroup(null); }}
+              onClick={() => { setTab(item.key); setOpenNavGroup(null); setMobileMenuOpen(false); }}
               key={item.key}
             >
               <span>{item.label}</span>
@@ -1390,7 +1469,7 @@ export default function Dashboard() {
                         type="button"
                         className={tab === key ? "current" : ""}
                         aria-current={tab === key ? "page" : undefined}
-                        onClick={() => { setTab(key); setOpenNavGroup(group.id); }}
+                        onClick={() => { setTab(key); setOpenNavGroup(group.id); setMobileMenuOpen(false); }}
                         key={key}
                       >{DASHBOARD_TAB_LABEL[key]}</button>
                     ))}
@@ -1407,6 +1486,14 @@ export default function Dashboard() {
             <span aria-hidden="true">↗</span>
           </a>
         )}
+        {user.role === "SUPPORT" && (
+          <a className="sidebar-admin-link" href="/admin?tab=support">
+            <span aria-hidden="true">✉</span>
+            Pedidos de suporte
+            <span aria-hidden="true">↗</span>
+          </a>
+        )}
+        <a className="sidebar-vendor-link" href="/suporte">Ajuda e suporte</a>
         <a className="sidebar-vendor-link" href="/fornecedor/gestao">
           Sou fornecedor · Gerir perfil <span aria-hidden="true">↗</span>
         </a>
@@ -1416,12 +1503,14 @@ export default function Dashboard() {
           </span>
           <div className="sidebar-user-info">
             <strong>{user.name || user.email}</strong>
-            <button onClick={() => void logout()}>Terminar sessão</button>
           </div>
         </div>
       </aside>
       <section className="dashboard-main">
         <div className="dashboard-toolbar">
+          <button className="dashboard-desktop-logout" type="button" onClick={() => void logout()}>
+            <span aria-hidden="true">↪</span> Terminar sessão
+          </button>
           <NotificationCenter onOpen={openNotification} />
         </div>
         {error && (
@@ -1747,7 +1836,7 @@ export default function Dashboard() {
                           </button>
                         </div>
                         {data.events.length ? (
-                          data.events.map((e) => (
+                          data.events.slice(0, 3).map((e) => (
                             <p className="event-row" key={e.id}>
                               {e.title}
                               <small>{date(e.startsAt)}</small>
@@ -1812,7 +1901,7 @@ export default function Dashboard() {
                       </div>
                     )}
                     <div className="team-member-list">
-                      {data.members.map((member) => (
+                      <PaginatedList items={data.members} label="pessoas">{(member) => (
                         <article
                           className="team-member-row"
                           key={member.user.id}
@@ -1882,7 +1971,7 @@ export default function Dashboard() {
                             </span>
                           )}
                         </article>
-                      ))}
+                      )}</PaginatedList>
                     </div>
                     {canManageTeam && (
                       <div className="team-manage-section">
@@ -2090,7 +2179,7 @@ export default function Dashboard() {
                       />
                     ) : (
                       <div className="task-list-view">
-                        {data.tasks.map((t) => (
+                        {displayedTaskList.map((t) => (
                           <div className="task-row task-row-actions" key={t.id}>
                             <span
                               className="task-list-priority"
@@ -2143,6 +2232,7 @@ export default function Dashboard() {
                             </button>
                           </div>
                         ))}
+                        <ListPagination page={taskListPage} pageSize={taskListPageSize} total={data.tasks.length} label="tarefas" onPageChange={setTaskListPage} onPageSizeChange={(size) => { setTaskListPageSize(size); setTaskListPage(1); }} />
                         {!data.tasks.length && (
                           <p className="empty-copy">
                             Ainda não há tarefas. Adicionem a primeira tarefa
@@ -2214,6 +2304,7 @@ export default function Dashboard() {
                     guests={data.guests}
                     tables={tables}
                     invitationSlug={data.invitations[0]?.slug}
+                    canEdit={data.members.some((member) => member.user.id === user.id && member.role !== "VIEWER")}
                     onRefresh={() => loadDetail(selected)}
                     onNotice={setNotice}
                     onError={(message) => {
@@ -2343,6 +2434,10 @@ export default function Dashboard() {
                           </div>
                           <small className="guest-guide-privacy-hint">O contacto só será partilhado depois de publicares as alterações.</small>
                         </fieldset>
+                        <label className="guest-request-setting">
+                          <input type="checkbox" checked={allowGuestRequests} onChange={(event) => setAllowGuestRequests(event.target.checked)} />
+                          <span><strong>Permitir pedidos de inclusão</strong><small>Quem abrir o convite poderá enviar os seus dados e pedir para participar. O pedido fica pendente e só entra na lista depois de ser aprovado.</small></span>
+                        </label>
                         <fieldset className="invite-theme-picker">
                           <legend>Estilo do convite</legend>
                           <div>
@@ -2388,7 +2483,7 @@ export default function Dashboard() {
                               target="_blank"
                               rel="noreferrer"
                             >
-                              Abrir página pública ↗
+                              Pré-visualizar convite público ↗
                             </a>
                             <button
                               onClick={() =>
@@ -2422,8 +2517,9 @@ export default function Dashboard() {
                             Abrir convidados e partilhar RSVP individuais →
                           </button>
                           <small>
-                            A plataforma não envia mensagens automaticamente.
-                            Copia o link e envia pelo canal que preferires.
+                            Na lista de convidados, podes enviar o convite por
+                            email a quem tiver um endereço registado ou partilhar
+                            o link individual pelo canal que preferires.
                           </small>
                         </div>
                       </div>
@@ -2642,14 +2738,8 @@ export default function Dashboard() {
                           </form>
                         )}
                         {data.events.length ? (
-                          data.events
-                            .slice()
-                            .sort((a, b) => {
-                              if (!a.startsAt) return b.startsAt ? 1 : 0;
-                              if (!b.startsAt) return -1;
-                              return a.startsAt.localeCompare(b.startsAt);
-                            })
-                            .map((item) => (
+                          <>
+                          {displayedProgramEvents.map((item) => (
                               <article className="program-row" key={item.id}>
                                 <span className="program-row-type">
                                   {MOMENT_TYPES.find(
@@ -2677,7 +2767,9 @@ export default function Dashboard() {
                                   </button>
                                 </div>
                               </article>
-                            ))
+                            ))}
+                          <ListPagination page={programPage} pageSize={programPageSize} total={sortedProgramEvents.length} label="momentos" onPageChange={setProgramPage} onPageSizeChange={(size) => { setProgramPageSize(size); setProgramPage(1); }} />
+                          </>
                         ) : (
                           <div className="program-empty-state">
                             <span aria-hidden="true">◷</span>
@@ -2720,7 +2812,7 @@ export default function Dashboard() {
                                 <h3>
                                   Atrasados <span>{overdueTasks.length}</span>
                                 </h3>
-                                {overdueTasks.map((task) => (
+                                {slicePage(overdueTasks, overduePage, overduePageSize).map((task) => (
                                   <article
                                     className="deadline-row overdue"
                                     key={task.id}
@@ -2751,12 +2843,13 @@ export default function Dashboard() {
                                     </button>
                                   </article>
                                 ))}
+                                <ListPagination page={overduePage} pageSize={overduePageSize} total={overdueTasks.length} label="tarefas atrasadas" onPageChange={setOverduePage} onPageSizeChange={(size) => { setOverduePageSize(size); setOverduePage(1); }} />
                               </div>
                             )}
                             {upcomingTasks.length > 0 && (
                               <div className="deadline-group">
                                 <h3>Próximos prazos</h3>
-                                {upcomingTasks.map((task) => (
+                                {slicePage(upcomingTasks, upcomingPage, upcomingPageSize).map((task) => (
                                   <article
                                     className="deadline-row"
                                     key={task.id}
@@ -2791,6 +2884,7 @@ export default function Dashboard() {
                                     </button>
                                   </article>
                                 ))}
+                                <ListPagination page={upcomingPage} pageSize={upcomingPageSize} total={upcomingTasks.length} label="próximos prazos" onPageChange={setUpcomingPage} onPageSizeChange={(size) => { setUpcomingPageSize(size); setUpcomingPage(1); }} />
                               </div>
                             )}
                           </>
@@ -2924,6 +3018,30 @@ export default function Dashboard() {
                               {changingPassword ? "A actualizar…" : "Actualizar palavra-passe"}
                             </button>
                           </form>
+                        </section>
+                        <section className="dash-panel wide-panel settings-panel">
+                          <p className="eyebrow">Endereço da conta</p>
+                          <h2>Alterar email</h2>
+                          <p className="empty-copy">Email actual: <strong>{user.email}</strong>. Enviaremos um link para o novo endereço; a alteração só entra em vigor depois da confirmação.</p>
+                          <form className="settings-form account-password-form" onSubmit={(event) => void requestEmailChange(event)}>
+                            <label>Novo email<input type="email" required maxLength={180} autoComplete="email" value={newEmailAddress} onChange={(event) => setNewEmailAddress(event.target.value)} /></label>
+                            <label>Confirma com a palavra-passe actual<input type="password" required minLength={8} autoComplete="current-password" value={emailChangePassword} onChange={(event) => setEmailChangePassword(event.target.value)} /></label>
+                            <button className="button button-outline" disabled={requestingEmailChange}>{requestingEmailChange ? "A enviar confirmação…" : "Enviar link de confirmação"}</button>
+                          </form>
+                          {emailChangeUrl && <p className="settings-save-state saved" role="status">Desenvolvimento: <a href={emailChangeUrl}>confirmar novo email</a></p>}
+                        </section>
+                        <section className="dash-panel wide-panel settings-panel email-preferences-panel">
+                          <p className="eyebrow">Mensagens da Nuvia</p>
+                          <h2>Preferências de email</h2>
+                          <p className="empty-copy">Escolhe que actualizações queres receber. Avisos de segurança e mudanças de acesso à equipa são sempre enviados.</p>
+                          <label className="email-preference-option">
+                            <input type="checkbox" checked={user.emailEventNotifications ?? true} disabled={savingEmailPreferences} onChange={(event) => void updateEmailPreference("emailEventNotifications", event.target.checked)} />
+                            <span><strong>Actualizações dos eventos</strong><small>Resumo semanal opcional à parte; esta opção controla os avisos imediatos de RSVP, contribuições e respostas de fornecedores.</small></span>
+                          </label>
+                          <label className="email-preference-option">
+                            <input type="checkbox" checked={user.weeklyDigestEnabled ?? false} disabled={savingEmailPreferences} onChange={(event) => void updateEmailPreference("weeklyDigestEnabled", event.target.checked)} />
+                            <span><strong>Resumo semanal</strong><small>Prazos próximos, confirmações RSVP e actividade recente dos teus eventos. Começa a chegar uma semana depois de activares.</small></span>
+                          </label>
                         </section>
                         <section className="dash-panel wide-panel settings-panel settings-export-panel">
                           <p className="eyebrow">Os teus dados</p>

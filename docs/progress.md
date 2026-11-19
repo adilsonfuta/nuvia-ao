@@ -74,7 +74,7 @@
 
 - Piloto com fornecedores reais: a caixa de entrada e notificações funcionam para perfis activos associados a uma conta, mas a plataforma ainda não tem fornecedores reais confirmados nem canal externo de email/WhatsApp.
 - Em produção, configurar `PORTFOLIO_STORAGE_DIR` para um volume persistente com backup. O armazenamento local já funciona no desenvolvimento, mas um disco efémero de contentor não é adequado para publicação.
-- Convites por email/WhatsApp e gestão de entregas. A partilha actual é manual por link ou QR.
-- Email de recuperação de palavra-passe, pagamentos, check-in QR e disponibilidade de espaços. O fluxo de recuperação não deve ser considerado funcional até configurar um serviço transaccional aprovado.
+- Emails transaccionais por Resend já estão implementados, incluindo convites e recuperação de palavra-passe; ficam desligados por padrão e exigem `RESEND_ENABLED=true`, credenciais e domínio de envio configurados. Envio por WhatsApp e acompanhamento de entrega fora do email continuam por implementar.
+- Pagamentos, check-in QR e disponibilidade de espaços continuam por implementar.
 - Testes de browser ponta a ponta, activação do pipeline CI no repositório remoto, monitorização externa, agendamento e recuperação testada de backups, política de privacidade/termos e revisão editorial contínua da informação civil.
 - Substituição da fotografia de referência por activos licenciados adequados também a alambamentos e festas.

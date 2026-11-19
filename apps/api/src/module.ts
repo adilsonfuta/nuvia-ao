@@ -2,8 +2,9 @@ import { Controller, Get, Module } from '@nestjs/common';
 import { resolve } from 'node:path';
 import { config } from 'dotenv';
 config({ path: resolve(__dirname, '../../../.env') });
-import { AdminGuard, AuthController, SessionGuard } from './auth';
+import { AdminGuard, AdminOnlyGuard, AuthController, SessionGuard, SupportStaffGuard } from './auth';
 import { AdminController } from './admin';
+import { PublicSupportController, SupportController } from './support';
 import { CatalogConfigController, GuidesController, LegalController, QuoteRequestsController, VendorFavoritesController, VenuesController, VendorsController } from './catalog';
 import { DatabaseService } from './database';
 import { NotificationsController } from './notifications';
@@ -13,6 +14,9 @@ import { PublicVendorPortfolioController, VendorPortalController } from './vendo
 import { ProjectContributionsController, PublicContributionsController } from './contributions';
 import { ProjectActivityController } from './project-activity';
 import { ProjectDocumentsController } from './project-documents';
+import { AdminAnalyticsController } from './analytics';
+import { EmailService } from './email';
+import { EmailDigestWorker } from './email-digest';
 
 @Controller('health')
 class HealthController {
@@ -21,7 +25,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, AuthController, AdminController, ProjectsController, ProjectActivityController, ProjectDocumentsController, PublicInvitationController, PublicEventSummaryController, NotificationsController, VendorsController, CatalogConfigController, VendorFavoritesController, QuoteRequestsController, GuidesController, LegalController, VenuesController, VendorApplicationsController, VendorPortalController, PublicVendorPortfolioController, ProjectContributionsController, PublicContributionsController],
-  providers: [DatabaseService, SessionGuard, AdminGuard],
+  controllers: [HealthController, AuthController, AdminController, AdminAnalyticsController, SupportController, PublicSupportController, ProjectsController, ProjectActivityController, ProjectDocumentsController, PublicInvitationController, PublicEventSummaryController, NotificationsController, VendorsController, CatalogConfigController, VendorFavoritesController, QuoteRequestsController, GuidesController, LegalController, VenuesController, VendorApplicationsController, VendorPortalController, PublicVendorPortfolioController, ProjectContributionsController, PublicContributionsController],
+  providers: [DatabaseService, SessionGuard, AdminGuard, AdminOnlyGuard, SupportStaffGuard, EmailService, EmailDigestWorker],
 })
 export class AppModule {}

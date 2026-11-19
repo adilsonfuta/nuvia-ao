@@ -1,0 +1,3 @@
+CREATE TYPE "RsvpResponseSource" AS ENUM ('PUBLIC_LINK', 'MANUAL');
+ALTER TABLE "RSVP"
+  ADD COLUMN "source" "RsvpResponseSource" NOT NULL DEFAULT 'PUBLIC_LINK';

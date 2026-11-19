@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, UseGuards } from "@nestjs/common";
+import { Controller, Get, Param, Patch, Query, UseGuards } from "@nestjs/common";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
 import { NotificationType } from "@casar/database";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
@@ -82,7 +82,7 @@ export class NotificationsController {
   constructor(private readonly db: DatabaseService) {}
 
   @Get()
-  async list(@CurrentUser() user: SessionUser) {
+  async list(@CurrentUser() user: SessionUser, @Query("page") pageRaw = "1", @Query("pageSize") pageSizeRaw = "20") {
     const memberships = await this.db.projectMember.findMany({
       where: { userId: user.id, project: { archivedAt: null } },
       select: { projectId: true },
@@ -179,16 +179,21 @@ export class NotificationsController {
       userId: user.id,
       projectId: { in: projectIds },
     };
-    const [items, unreadCount] = await Promise.all([
+    const page = Math.max(1, Math.min(10000, Number.parseInt(pageRaw, 10) || 1));
+    const requestedPageSize = /^\d+$/.test(pageSizeRaw) ? Number(pageSizeRaw) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+    const [items, unreadCount, total] = await Promise.all([
       this.db.notification.findMany({
         where: visibleProjectScope,
         include: { project: { select: { title: true } } },
         orderBy: { createdAt: "desc" },
-        take: 40,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
       }),
       this.db.notification.count({ where: { ...visibleProjectScope, readAt: null } }),
+      this.db.notification.count({ where: visibleProjectScope }),
     ]);
-    return { items, unreadCount };
+    return { items, unreadCount, pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } };
   }
 
   @Patch(":id/read")

@@ -12,6 +12,7 @@ const nextConfig = {
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
       "connect-src 'self' https://*.clarity.ms https://c.bing.com https://www.googletagmanager.com https://*.google-analytics.com https://*.google.com",
+      "frame-src https://www.openstreetmap.org",
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",

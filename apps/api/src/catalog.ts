@@ -7,12 +7,17 @@ import {
   Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from "@nestjs/common";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
 import { IsOptional, IsString, MinLength, MaxLength } from "class-validator";
 import { DatabaseService } from "./database";
+import { EmailService } from "./email";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
+import type { Response } from "express";
+import { sendGuideCover } from "./guide-covers";
+import { sendVenuePhoto } from "./venue-photos";
 
 class CreateQuoteDto {
   @IsString() projectId!: string;
@@ -44,27 +49,40 @@ export class VendorsController {
     @Query("category") category?: string,
     @Query("province") province?: string,
     @Query("search") search?: string,
+    @Query("page") pageRaw?: string,
+    @Query("pageSize") pageSizeRaw?: string,
   ) {
-    return this.db.vendor.findMany({
-      where: {
-        status: "ACTIVE",
+    const where = {
+        status: "ACTIVE" as const,
         ...(category ? { category } : {}),
         ...(province ? { province } : {}),
         ...(search
           ? {
               OR: [
-                { name: { contains: search, mode: "insensitive" } },
-                { description: { contains: search, mode: "insensitive" } },
+                { name: { contains: search, mode: "insensitive" as const } },
+                { description: { contains: search, mode: "insensitive" as const } },
               ],
             }
           : {}),
-      },
+      };
+    const page = Math.max(1, Number.parseInt(pageRaw ?? "1", 10) || 1);
+    const requestedPageSize = /^\d+$/.test(pageSizeRaw ?? "") ? Number(pageSizeRaw) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+    const query = {
+      where,
       select: {
         id: true,
         slug: true,
         name: true,
         category: true,
         description: true,
+        galleryUrls: true,
+        portfolio: {
+          where: { status: "APPROVED" as const },
+          select: { id: true, altText: true, sortOrder: true, isCover: true },
+          orderBy: [{ isCover: "desc" as const }, { sortOrder: "asc" as const }, { uploadedAt: "asc" as const }],
+          take: 1,
+        },
         province: true,
         municipality: true,
         priceFrom: true,
@@ -72,10 +90,22 @@ export class VendorsController {
         verifiedAt: true,
         isDemo: true,
       },
-      orderBy: [{ verifiedAt: "desc" }, { name: "asc" }],
-    });
+      orderBy: [{ verifiedAt: "desc" as const }, { name: "asc" as const }],
+    };
+    if (pageRaw === undefined && pageSizeRaw === undefined) return this.db.vendor.findMany(query);
+    return Promise.all([
+      this.db.vendor.findMany({ ...query, skip: (page - 1) * pageSize, take: pageSize }),
+      this.db.vendor.count({ where }),
+    ]).then(([items, total]) => ({ items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) }));
   }
-  @Get(":slug") async detail(@Param("slug") slug: string) {
+  @Get(":slug") async detail(
+    @Param("slug") slug: string,
+    @Query("page") pageRaw = "1",
+    @Query("pageSize") pageSizeRaw = "10",
+  ) {
+    const page = Math.max(1, Math.min(10000, Number.parseInt(pageRaw, 10) || 1));
+    const requestedPageSize = /^\d+$/.test(pageSizeRaw) ? Number(pageSizeRaw) : 10;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 10;
     const vendor = await this.db.vendor.findFirst({
       where: { slug, status: "ACTIVE" },
       select: {
@@ -113,7 +143,8 @@ export class VendorsController {
             responseStatus: true,
           },
           orderBy: { createdAt: "desc" },
-          take: 30,
+          skip: (page - 1) * pageSize,
+          take: pageSize,
         },
         province: true,
         municipality: true,
@@ -132,13 +163,16 @@ export class VendorsController {
     });
     if (!vendor) throw new NotFoundException("Fornecedor não encontrado.");
     const { ownerUserId, reviews, ...publicVendor } = vendor;
-    const ratingAverage = reviews.length ? Math.round((reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length) * 10) / 10 : null;
+    const reviewAggregate = await this.db.vendorReview.aggregate({ where: { vendorId: vendor.id, status: "APPROVED" }, _avg: { rating: true }, _count: { id: true } });
+    const reviewCount = reviewAggregate._count.id;
+    const ratingAverage = reviewAggregate._avg.rating === null ? null : Math.round(reviewAggregate._avg.rating * 10) / 10;
     return {
       ...publicVendor,
       hasManager: Boolean(ownerUserId),
       reviewSummary: {
         average: ratingAverage,
-        count: reviews.length,
+        count: reviewCount,
+        pagination: { page, pageSize, total: reviewCount, totalPages: Math.max(1, Math.ceil(reviewCount / pageSize)) },
         items: reviews.map((review) => ({
           id: review.id,
           rating: review.rating,
@@ -160,7 +194,7 @@ export class VendorsController {
 @Controller("quote-requests")
 @UseGuards(SessionGuard)
 export class QuoteRequestsController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
   @Post() async create(
     @CurrentUser() user: SessionUser,
     @Body() body: CreateQuoteDto,
@@ -185,8 +219,9 @@ export class QuoteRequestsController {
         vendorId: body.vendorId,
         message: body.message,
       },
-      include: { vendor: { select: { name: true } } },
+      include: { vendor: { select: { name: true } }, project: { select: { title: true } } },
     });
+    if (vendor.ownerUserId && !vendor.isDemo) void this.email.sendVendorInquiry({ userId: vendor.ownerUserId, name: null, project: request.project.title, vendor: request.vendor.name, key: request.id });
     return {
       id: request.id,
       status: request.status,
@@ -267,6 +302,9 @@ export class VendorFavoritesController {
 @Controller("guides")
 export class GuidesController {
   constructor(private readonly db: DatabaseService) {}
+  @Get("covers/:id/image") cover(@Param("id") id: string, @Res() response: Response) {
+    return sendGuideCover(id, response);
+  }
   @Get() list(@Query("category") category?: string) {
     return this.db.guideArticle.findMany({
       where: { status: "PUBLISHED", ...(category ? { category } : {}) },
@@ -275,10 +313,12 @@ export class GuidesController {
         title: true,
         summary: true,
         category: true,
+        readingMinutes: true,
+        coverImage: true,
         reviewedAt: true,
         isDemo: true,
       },
-      orderBy: { reviewedAt: "desc" },
+      orderBy: [{ sortOrder: "asc" }, { reviewedAt: "desc" }, { createdAt: "asc" }],
     });
   }
   @Get(":slug") async detail(@Param("slug") slug: string) {
@@ -444,11 +484,16 @@ export class LegalController {
 @Controller("venues")
 export class VenuesController {
   constructor(private readonly db: DatabaseService) {}
+  @Get("photos/:id/image") photo(@Param("id") id: string, @Res() response: Response) {
+    return sendVenuePhoto(id, response);
+  }
   @Get() async list(
     @Query("search") search?: string,
     @Query("province") province?: string,
     @Query("type") venueType?: string,
     @Query("capacity") capacityRaw?: string,
+    @Query("page") pageRaw?: string,
+    @Query("pageSize") pageSizeRaw?: string,
   ) {
     const rawCapacity = capacityRaw && /^\d+$/.test(capacityRaw) ? Number(capacityRaw) : undefined;
     const capacity = rawCapacity && Number.isSafeInteger(rawCapacity) && rawCapacity <= 100000 ? rawCapacity : undefined;
@@ -463,16 +508,19 @@ export class VenuesController {
         { municipality: { contains: search.trim().slice(0, 100), mode: "insensitive" as const } },
       ] } : {}),
     };
+    const page = Math.max(1, Number.parseInt(pageRaw ?? "1", 10) || 1);
+    const requestedPageSize = /^\d+$/.test(pageSizeRaw ?? "") ? Number(pageSizeRaw) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
     const [items, total] = await Promise.all([
-      this.db.venue.findMany({ where, select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, amenities: true, eventTypes: true, verifiedAt: true }, orderBy: [{ verifiedAt: "desc" }, { name: "asc" }], take: 60 }),
+      this.db.venue.findMany({ where, select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, latitude: true, longitude: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, amenities: true, eventTypes: true, verifiedAt: true, isDemo: true }, orderBy: [{ isDemo: "asc" }, { verifiedAt: "desc" }, { name: "asc" }], skip: (page - 1) * pageSize, take: pageSize }),
       this.db.venue.count({ where }),
     ]);
-    return { items, total, status: items.length ? "PUBLICADO" : "SEM_RESULTADOS" };
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)), status: total ? "PUBLICADO" : "SEM_RESULTADOS" };
   }
   @Get(":slug") async detail(@Param("slug") slug: string) {
     const venue = await this.db.venue.findFirst({
       where: { slug, status: "PUBLISHED" },
-      select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, amenities: true, eventTypes: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, bookingTerms: true, paymentTerms: true, cancellationTerms: true, verifiedAt: true },
+      select: { id: true, slug: true, name: true, venueType: true, description: true, province: true, municipality: true, address: true, mapsUrl: true, latitude: true, longitude: true, capacityMin: true, capacityMax: true, priceFrom: true, priceTo: true, amenities: true, eventTypes: true, galleryUrls: true, phone: true, email: true, websiteUrl: true, bookingTerms: true, paymentTerms: true, cancellationTerms: true, verifiedAt: true, isDemo: true },
     });
     if (!venue) throw new NotFoundException("Espaço não encontrado.");
     return venue;

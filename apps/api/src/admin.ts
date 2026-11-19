@@ -1,22 +1,30 @@
 import {
   Body,
   Controller,
+  ConflictException,
   Get,
   BadRequestException,
   NotFoundException,
   Param,
   Patch,
   Post,
+  Query,
   Res,
+  UnauthorizedException,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
-import { VenueStatus, VendorApplicationStatus, VendorClaimStatus, VendorContentStatus, VendorReviewStatus, VendorStatus } from "@casar/database";
+import { AccountStatus, UserRole, VenueStatus, VendorApplicationStatus, VendorClaimStatus, VendorContentStatus, VendorReviewStatus, VendorStatus } from "@casar/database";
+import { compare } from "bcryptjs";
 import type { Response } from "express";
 import { sendStoredVendorImage, vendorSocialPayloadIsSafe } from "./vendor-portal";
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -28,11 +36,14 @@ import {
   ValidateIf,
   Max,
   MaxLength,
+  Matches,
   Min,
   MinLength,
 } from "class-validator";
-import { AdminGuard, CurrentUser, SessionGuard, SessionUser } from "./auth";
+import { AdminGuard, AdminOnlyGuard, CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
+import { storeGuideCover } from "./guide-covers";
+import { storeVenuePhoto } from "./venue-photos";
 
 class VendorInput {
   @IsString() @MinLength(2) name!: string;
@@ -76,6 +87,21 @@ class VendorInput {
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) facebookUrl?: string;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) tiktokUrl?: string;
 }
+
+class AccountStatusInput {
+  @IsEnum(AccountStatus) status!: AccountStatus;
+  @ValidateIf((body: AccountStatusInput) => body.status === AccountStatus.SUSPENDED)
+  @IsString() @MinLength(8) @MaxLength(500) reason?: string;
+}
+
+class AccountRoleInput {
+  @IsEnum(UserRole) role!: UserRole;
+}
+class PromoteAccountToAdminInput {
+  @IsEmail() @MaxLength(180) confirmEmail!: string;
+  @IsString() @MinLength(8) @MaxLength(128) currentPassword!: string;
+  @IsString() @MinLength(8) @MaxLength(500) reason!: string;
+}
 class VendorReview {
   @IsOptional() @IsEnum(VendorStatus) status?: VendorStatus;
   @IsOptional() @IsString() @MinLength(8) @MaxLength(500) reason?: string;
@@ -111,13 +137,15 @@ class VenueInput {
   @IsOptional() @IsString() @MaxLength(100) municipality?: string;
   @IsOptional() @IsString() @MaxLength(300) address?: string;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) mapsUrl?: string;
+  @IsOptional() @IsNumber() @Min(-90) @Max(90) latitude?: number | null;
+  @IsOptional() @IsNumber() @Min(-180) @Max(180) longitude?: number | null;
   @IsOptional() @IsInt() @Min(0) @Max(100000) capacityMin?: number;
   @IsOptional() @IsInt() @Min(1) @Max(100000) capacityMax?: number;
   @IsOptional() @IsNumber() @Min(0) priceFrom?: number;
   @IsOptional() @IsNumber() @Min(0) priceTo?: number;
   @IsOptional() @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) @MaxLength(100, { each: true }) amenities?: string[];
   @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(80, { each: true }) eventTypes?: string[];
-  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUrl({ protocols: ["https"], require_protocol: true }, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @Matches(/^(?:https:\/\/\S+|\/api\/v1\/venues\/photos\/[a-f0-9-]{36}\/image|\/espacos\/demo\/[a-z0-9-]+\.webp)$/i, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
   @IsOptional() @IsString() @MaxLength(40) phone?: string;
   @IsOptional() @IsEmail() @MaxLength(180) email?: string;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) websiteUrl?: string;
@@ -125,6 +153,7 @@ class VenueInput {
   @IsOptional() @IsString() @MaxLength(1000) paymentTerms?: string;
   @IsOptional() @IsString() @MaxLength(1000) cancellationTerms?: string;
   @IsOptional() @IsString() vendorId?: string;
+  @IsOptional() @IsBoolean() isDemo?: boolean;
 }
 class VenuePatch {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(120) name?: string;
@@ -135,13 +164,15 @@ class VenuePatch {
   @IsOptional() @IsString() @MaxLength(100) municipality?: string | null;
   @IsOptional() @IsString() @MaxLength(300) address?: string | null;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) mapsUrl?: string | null;
+  @IsOptional() @IsNumber() @Min(-90) @Max(90) latitude?: number | null;
+  @IsOptional() @IsNumber() @Min(-180) @Max(180) longitude?: number | null;
   @IsOptional() @IsInt() @Min(0) @Max(100000) capacityMin?: number | null;
   @IsOptional() @IsInt() @Min(1) @Max(100000) capacityMax?: number | null;
   @IsOptional() @IsNumber() @Min(0) priceFrom?: number | null;
   @IsOptional() @IsNumber() @Min(0) priceTo?: number | null;
   @IsOptional() @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) @MaxLength(100, { each: true }) amenities?: string[];
   @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(80, { each: true }) eventTypes?: string[];
-  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUrl({ protocols: ["https"], require_protocol: true }, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @Matches(/^(?:https:\/\/\S+|\/api\/v1\/venues\/photos\/[a-f0-9-]{36}\/image|\/espacos\/demo\/[a-z0-9-]+\.webp)$/i, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
   @IsOptional() @IsString() @MaxLength(40) phone?: string | null;
   @IsOptional() @IsEmail() @MaxLength(180) email?: string | null;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) websiteUrl?: string | null;
@@ -150,6 +181,7 @@ class VenuePatch {
   @IsOptional() @IsString() @MaxLength(1000) cancellationTerms?: string | null;
   @IsOptional() @IsString() vendorId?: string | null;
   @IsOptional() @IsEnum(VenueStatus) status?: VenueStatus;
+  @IsOptional() @IsBoolean() isDemo?: boolean;
   @IsOptional() @IsDateString() verifiedAt?: string;
   @ValidateIf((body: VenuePatch) => body.status === VenueStatus.SUSPENDED)
   @IsString() @MinLength(8) @MaxLength(500) reason?: string;
@@ -200,6 +232,9 @@ class GuideInput {
   @IsString() @MinLength(10) summary!: string;
   @IsString() @MinLength(20) body!: string;
   @IsString() category!: string;
+  @IsOptional() @IsInt() @Min(1) @Max(60) readingMinutes?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(10000) sortOrder?: number;
+  @IsOptional() @IsString() @Matches(/^\/(?:guias\/[a-z0-9-]+\.(?:webp|png|jpe?g)|api\/v1\/guides\/covers\/[a-f0-9-]{36}\/image)$/i) coverImage?: string | null;
   @IsOptional()
   @IsEnum({ DRAFT: "DRAFT", PUBLISHED: "PUBLISHED", ARCHIVED: "ARCHIVED" })
   status?: string;
@@ -211,6 +246,9 @@ export class UpdateGuideDto {
   @IsOptional() @IsString() @MinLength(10) @MaxLength(500) summary?: string;
   @IsOptional() @IsString() @MinLength(20) @MaxLength(30000) body?: string;
   @IsOptional() @IsString() @MaxLength(80) category?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(60) readingMinutes?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(10000) sortOrder?: number;
+  @IsOptional() @IsString() @Matches(/^\/(?:guias\/[a-z0-9-]+\.(?:webp|png|jpe?g)|api\/v1\/guides\/covers\/[a-f0-9-]{36}\/image)$/i) coverImage?: string | null;
   @IsOptional()
   @IsEnum({ DRAFT: "DRAFT", PUBLISHED: "PUBLISHED", ARCHIVED: "ARCHIVED" })
   status?: string;
@@ -266,6 +304,171 @@ class VendorRatingReviewDto {
 @Controller("admin")
 export class AdminController {
   constructor(private readonly db: DatabaseService) {}
+
+  @Get("accounts")
+  @UseGuards(AdminOnlyGuard)
+  async accounts(
+    @Query("q") query?: string,
+    @Query("status") status?: string,
+    @Query("role") roleValue?: string,
+    @Query("page") pageValue?: string,
+    @Query("pageSize") pageSizeValue?: string,
+    @Query("createdFrom") createdFromValue?: string,
+    @Query("createdTo") createdToValue?: string,
+  ) {
+    const page = Math.max(1, Math.min(10000, Number.parseInt(pageValue ?? "1", 10) || 1));
+    const requestedPageSize = /^\d+$/.test(pageSizeValue ?? "") ? Number(pageSizeValue) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+    const search = query?.trim().slice(0, 100);
+    if (status && !Object.values(AccountStatus).includes(status as AccountStatus))
+      throw new BadRequestException("Estado de conta inválido.");
+    if (roleValue && !Object.values(UserRole).includes(roleValue as UserRole))
+      throw new BadRequestException("Papel de conta inválido.");
+    const accountStatus = status as AccountStatus | undefined;
+    const role = roleValue as UserRole | undefined;
+    const parseLocalDate = (value: string | undefined, exclusiveEnd = false) => {
+      if (!value) return undefined;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new BadRequestException("Usa uma data válida para filtrar as contas.");
+      const calendarDate = new Date(`${value}T00:00:00.000Z`);
+      if (Number.isNaN(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== value)
+        throw new BadRequestException("Usa uma data válida para filtrar as contas.");
+      const date = new Date(`${value}T00:00:00+01:00`);
+      if (Number.isNaN(date.getTime())) throw new BadRequestException("Usa uma data válida para filtrar as contas.");
+      if (exclusiveEnd) date.setUTCDate(date.getUTCDate() + 1);
+      return date;
+    };
+    const createdFrom = parseLocalDate(createdFromValue);
+    const createdTo = parseLocalDate(createdToValue, true);
+    if (createdFrom && createdTo && createdFrom >= createdTo)
+      throw new BadRequestException("A data inicial deve ser anterior ou igual à data final.");
+    const where = {
+      ...(accountStatus ? { accountStatus } : {}),
+      ...(role ? { role } : {}),
+      ...(createdFrom || createdTo ? { createdAt: { ...(createdFrom ? { gte: createdFrom } : {}), ...(createdTo ? { lt: createdTo } : {}) } } : {}),
+      ...(search ? { OR: [
+        { email: { contains: search, mode: "insensitive" as const } },
+        { name: { contains: search, mode: "insensitive" as const } },
+      ] } : {}),
+    };
+    const [items, total, activeCount, suspendedCount] = await Promise.all([
+      this.db.user.findMany({
+        where,
+        select: {
+          id: true, name: true, email: true, role: true, accountStatus: true,
+          createdAt: true, lastLoginAt: true, suspendedAt: true, suspensionReason: true,
+          _count: { select: {
+            projects: true,
+            supportRequests: { where: { status: { in: ["OPEN", "IN_PROGRESS"] } } },
+          } },
+        },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.db.user.count({ where }),
+      this.db.user.count({ where: { accountStatus: AccountStatus.ACTIVE } }),
+      this.db.user.count({ where: { accountStatus: AccountStatus.SUSPENDED } }),
+    ]);
+    return { items, total, page, pageSize, activeCount, suspendedCount };
+  }
+
+  @Patch("accounts/:id/status")
+  @UseGuards(AdminOnlyGuard)
+  async updateAccountStatus(@Param("id") id: string, @Body() body: AccountStatusInput, @CurrentUser() actor: SessionUser) {
+    const account = await this.db.user.findUnique({ where: { id }, select: { id: true, role: true, accountStatus: true } });
+    if (!account) throw new NotFoundException("Conta não encontrada.");
+    if (account.role !== UserRole.USER && account.role !== UserRole.SUPPORT)
+      throw new BadRequestException("Contas da equipa administrativa não podem ser suspensas por esta via.");
+    if (actor.id === id) throw new BadRequestException("Não podes suspender a tua própria conta.");
+    if (body.status === AccountStatus.SUSPENDED && !body.reason?.trim())
+      throw new BadRequestException("Indica o motivo da suspensão.");
+    if (account.accountStatus === body.status) return { ok: true, account };
+    const suspended = body.status === AccountStatus.SUSPENDED;
+    const updated = await this.db.$transaction(async (tx) => {
+      const result = await tx.user.update({
+        where: { id },
+        data: {
+          accountStatus: body.status,
+          suspendedAt: suspended ? new Date() : null,
+          suspensionReason: suspended ? body.reason!.trim() : null,
+        },
+        select: { id: true, name: true, email: true, role: true, accountStatus: true, suspendedAt: true, suspensionReason: true },
+      });
+      if (suspended) await tx.session.deleteMany({ where: { userId: id } });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: suspended ? "ACCOUNT_SUSPENDED" : "ACCOUNT_REACTIVATED",
+          resource: "User",
+          resourceId: id,
+          metadata: { from: account.accountStatus, to: body.status, reason: suspended ? body.reason!.trim() : null },
+        },
+      });
+      return result;
+    });
+    return updated;
+  }
+
+  @Patch("accounts/:id/role")
+  @UseGuards(AdminOnlyGuard)
+  async updateAccountRole(@Param("id") id: string, @Body() body: AccountRoleInput, @CurrentUser() actor: SessionUser) {
+    if (body.role !== UserRole.USER && body.role !== UserRole.SUPPORT)
+      throw new BadRequestException("Só é possível atribuir os papéis de utilizador ou suporte nesta área.");
+    const account = await this.db.user.findUnique({ where: { id }, select: { id: true, role: true, accountStatus: true } });
+    if (!account) throw new NotFoundException("Conta não encontrada.");
+    if (account.role !== UserRole.USER && account.role !== UserRole.SUPPORT)
+      throw new BadRequestException("O papel de administrador ou moderador não pode ser alterado nesta área.");
+    if (body.role === UserRole.SUPPORT && account.accountStatus !== AccountStatus.ACTIVE)
+      throw new BadRequestException("Reactiva a conta antes de lhe atribuíres acesso de suporte.");
+    if (account.role === body.role) return { ok: true, account };
+    const updated = await this.db.$transaction(async (tx) => {
+      const result = await tx.user.update({ where: { id }, data: { role: body.role }, select: { id: true, name: true, email: true, role: true, accountStatus: true } });
+      await tx.auditLog.create({ data: { actorId: actor.id, action: "ACCOUNT_ROLE_CHANGED", resource: "User", resourceId: id, metadata: { from: account.role, to: body.role } } });
+      return result;
+    });
+    return updated;
+  }
+
+  @Patch("accounts/:id/promote-admin")
+  @UseGuards(AdminOnlyGuard)
+  async promoteAccountToAdmin(@Param("id") id: string, @Body() body: PromoteAccountToAdminInput, @CurrentUser() actor: SessionUser) {
+    const [target, administrator] = await Promise.all([
+      this.db.user.findUnique({ where: { id }, select: { id: true, name: true, email: true, role: true, accountStatus: true } }),
+      this.db.user.findUnique({ where: { id: actor.id }, select: { passwordHash: true, role: true, accountStatus: true } }),
+    ]);
+    if (!target) throw new NotFoundException("Conta não encontrada.");
+    if (!administrator || administrator.role !== UserRole.ADMIN || administrator.accountStatus !== AccountStatus.ACTIVE)
+      throw new BadRequestException("A conta administrativa actual não está activa.");
+    if (target.role !== UserRole.USER && target.role !== UserRole.SUPPORT)
+      throw new BadRequestException("Só é possível promover contas de utilizador ou suporte.");
+    if (target.accountStatus !== AccountStatus.ACTIVE)
+      throw new BadRequestException("Reactiva a conta antes de a promover.");
+    if (target.email.trim().toLocaleLowerCase("en-US") !== body.confirmEmail.trim().toLocaleLowerCase("en-US"))
+      throw new BadRequestException("O email de confirmação não corresponde à conta seleccionada.");
+    if (Buffer.byteLength(body.currentPassword, "utf8") > 72)
+      throw new BadRequestException("A palavra-passe excede o limite permitido.");
+    if (!(await compare(body.currentPassword, administrator.passwordHash)))
+      throw new UnauthorizedException("A palavra-passe do administrador está incorrecta.");
+    const reason = body.reason.trim();
+    if (reason.length < 8) throw new BadRequestException("Indica um motivo com pelo menos 8 caracteres.");
+
+    return this.db.$transaction(async (tx) => {
+      const promoted = await tx.user.updateMany({ where: { id, role: target.role, accountStatus: AccountStatus.ACTIVE }, data: { role: UserRole.ADMIN } });
+      if (promoted.count !== 1) throw new ConflictException("A conta foi alterada entretanto. Actualiza a lista e tenta novamente.");
+      const result = await tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, name: true, email: true, role: true, accountStatus: true } });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          action: "ACCOUNT_ADMIN_PROMOTED",
+          resource: "User",
+          resourceId: id,
+          metadata: { from: target.role, to: UserRole.ADMIN, reason },
+        },
+      });
+      return result;
+    });
+  }
+
   @Get("vendors") vendors() {
     return this.db.vendor.findMany({ orderBy: [{ status: "asc" }, { createdAt: "desc" }] });
   }
@@ -354,6 +557,8 @@ export class AdminController {
     return this.db.venue.findMany({ orderBy: [{ status: "asc" }, { updatedAt: "desc" }] });
   }
   @Post("venues") async createVenue(@Body() body: VenueInput, @CurrentUser() user: SessionUser) {
+    if ((body.latitude == null) !== (body.longitude == null))
+      throw new BadRequestException("Indica latitude e longitude para marcar o ponto exacto no mapa.");
     if (body.capacityMin !== undefined && body.capacityMax !== undefined && body.capacityMin > body.capacityMax)
       throw new BadRequestException("A capacidade mínima não pode ser superior à máxima.");
     if (body.priceFrom !== undefined && body.priceTo !== undefined && body.priceFrom > body.priceTo)
@@ -364,6 +569,23 @@ export class AdminController {
     await this.db.auditLog.create({ data: { actorId: user.id, action: "VENUE_CREATED", resource: "Venue", resourceId: venue.id, metadata: { status: venue.status, venueType: venue.venueType } } });
     return venue;
   }
+  @Post("venues/photos")
+  @UseInterceptors(FileInterceptor("image", {
+    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+    fileFilter: (_request, file, callback) => {
+      const accepted = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
+      callback(accepted ? null : new BadRequestException("Usa uma imagem JPEG, PNG ou WebP."), accepted);
+    },
+  }))
+  async uploadVenuePhoto(
+    @UploadedFile() file: { buffer: Buffer; mimetype: string } | undefined,
+    @CurrentUser() user: SessionUser,
+  ) {
+    if (!file) throw new BadRequestException("Escolhe uma fotografia JPEG, PNG ou WebP.");
+    const photo = await storeVenuePhoto(file.buffer);
+    await this.db.auditLog.create({ data: { actorId: user.id, action: "VENUE_PHOTO_UPLOADED", resource: "VenuePhoto", resourceId: photo.id, metadata: { byteSize: photo.byteSize, mediaType: "image/webp" } } });
+    return { imageUrl: photo.imageUrl };
+  }
   @Patch("venues/:id") async updateVenue(@Param("id") id: string, @Body() body: VenuePatch, @CurrentUser() user: SessionUser) {
     const existing = await this.db.venue.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Espaço não encontrado.");
@@ -371,16 +593,21 @@ export class AdminController {
       throw new NotFoundException("Prestador associado não encontrado.");
     const capacityMin = body.capacityMin === undefined ? existing.capacityMin : body.capacityMin;
     const capacityMax = body.capacityMax === undefined ? existing.capacityMax : body.capacityMax;
+    const latitude = body.latitude === undefined ? existing.latitude : body.latitude;
+    const longitude = body.longitude === undefined ? existing.longitude : body.longitude;
     const priceFrom = body.priceFrom === undefined ? (existing.priceFrom === null ? undefined : Number(existing.priceFrom)) : body.priceFrom;
     const priceTo = body.priceTo === undefined ? (existing.priceTo === null ? undefined : Number(existing.priceTo)) : body.priceTo;
     if (capacityMin !== null && capacityMax !== null && capacityMin !== undefined && capacityMax !== undefined && capacityMin > capacityMax)
       throw new BadRequestException("A capacidade mínima não pode ser superior à máxima.");
+    if ((latitude == null) !== (longitude == null))
+      throw new BadRequestException("Indica latitude e longitude para marcar o ponto exacto no mapa.");
     if (priceFrom !== undefined && priceTo !== undefined && priceFrom !== null && priceTo !== null && priceFrom > priceTo)
       throw new BadRequestException("O preço mínimo não pode ser superior ao máximo.");
     if (body.status === VenueStatus.SUSPENDED && !body.reason)
       throw new BadRequestException("Indica o motivo da suspensão para manter o histórico da decisão.");
     const publishing = body.status === VenueStatus.PUBLISHED && existing.status !== VenueStatus.PUBLISHED;
-    if (body.status === VenueStatus.PUBLISHED || (existing.status === VenueStatus.PUBLISHED && !body.status)) {
+    const isDemo = body.isDemo ?? existing.isDemo;
+    if (!isDemo && (body.status === VenueStatus.PUBLISHED || (existing.status === VenueStatus.PUBLISHED && !body.status))) {
       const province = body.province ?? existing.province;
       const municipality = body.municipality ?? existing.municipality;
       const address = body.address ?? existing.address;
@@ -493,7 +720,32 @@ export class AdminController {
     return requirement;
   }
   @Get("guides") guides() {
-    return this.db.guideArticle.findMany({ orderBy: { createdAt: "desc" } });
+    return this.db.guideArticle.findMany({ orderBy: [{ sortOrder: "asc" }, { reviewedAt: "desc" }, { createdAt: "asc" }] });
+  }
+  @Post("guides/covers")
+  @UseInterceptors(FileInterceptor("image", {
+    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+    fileFilter: (_request, file, callback) => {
+      const accepted = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
+      callback(accepted ? null : new BadRequestException("Usa uma imagem JPEG, PNG ou WebP."), accepted);
+    },
+  }))
+  async uploadGuideCover(
+    @UploadedFile() file: { buffer: Buffer; mimetype: string } | undefined,
+    @CurrentUser() user: SessionUser,
+  ) {
+    if (!file) throw new BadRequestException("Escolhe uma imagem JPEG, PNG ou WebP.");
+    const cover = await storeGuideCover(file.buffer);
+    await this.db.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: "GUIDE_COVER_UPLOADED",
+        resource: "GuideArticle",
+        resourceId: cover.id,
+        metadata: { byteSize: cover.byteSize, mediaType: "image/webp" },
+      },
+    });
+    return { coverImage: cover.coverImage };
   }
   @Post("guides") async createGuide(
     @Body() body: GuideInput,
@@ -598,13 +850,22 @@ export class AdminController {
     });
   }
 
-  @Get("audit") async audit() {
-    return this.db.auditLog.findMany({
-      where: { resource: { in: ["Vendor", "Venue", "VendorApplication", "PlatformConfig", "VendorClaim", "VendorPortfolioItem", "VendorProfileSubmission", "VendorReview"] } },
+  @Get("audit") async audit(@CurrentUser() actor: SessionUser, @Query("page") pageRaw = "1", @Query("pageSize") pageSizeRaw = "20") {
+    const account = await this.db.user.findUnique({ where: { id: actor.id }, select: { role: true } });
+    const resources = ["Vendor", "Venue", "VendorApplication", "PlatformConfig", "VendorClaim", "VendorPortfolioItem", "VendorProfileSubmission", "VendorReview"];
+    if (account?.role === UserRole.ADMIN) resources.push("User", "SupportRequest");
+    const page = Math.max(1, Math.min(10000, Number.parseInt(pageRaw, 10) || 1));
+    const requestedPageSize = /^\d+$/.test(pageSizeRaw) ? Number(pageSizeRaw) : 20;
+    const pageSize = [5, 10, 20, 50, 100].includes(requestedPageSize) ? requestedPageSize : 20;
+    const where = { resource: { in: resources } };
+    const [items, total] = await Promise.all([this.db.auditLog.findMany({
+      where,
       include: { actor: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: "desc" },
-      take: 100,
-    });
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }), this.db.auditLog.count({ where })]);
+    return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
   }
 
   @Get("config") async config(@CurrentUser() user: SessionUser) {

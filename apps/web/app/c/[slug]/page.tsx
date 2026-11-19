@@ -13,6 +13,7 @@ type Invitation = {
   dressCode: string | null;
   supportContactName: string | null;
   supportContactPhone: string | null;
+  allowGuestRequests: boolean;
   recipient: {
     name: string;
     maxPartySize: number;
@@ -54,6 +55,10 @@ export default function InvitationPage() {
   const [invite, setInvite] = useState<Invitation | null>(null);
   const [status, setStatus] = useState("");
   const [partySize, setPartySize] = useState(1);
+  const [requestSubmitted, setRequestSubmitted] = useState(false);
+  const [requestAttendance, setRequestAttendance] = useState<"ACCEPTED" | "DECLINED">("ACCEPTED");
+  const [requestPartySize, setRequestPartySize] = useState(1);
+  const [requestChannels, setRequestChannels] = useState<Array<"WHATSAPP" | "PHONE" | "EMAIL">>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -86,6 +91,34 @@ export default function InvitationPage() {
       setStatus("A tua resposta foi registada. Obrigado!");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível registar a resposta.");
+    }
+  }
+
+  async function requestInclusion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setError("");
+    if (!requestChannels.length) {
+      setError("Escolhe pelo menos uma forma de contacto.");
+      return;
+    }
+    try {
+      await api(`/invitations/${slug}/requests`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.get("requestName"),
+          email: String(form.get("requestEmail") || "").trim() || undefined,
+          phone: String(form.get("requestPhone") || "").trim() || undefined,
+          contactChannels: requestChannels,
+          requestedRsvp: requestAttendance,
+          partySize: requestAttendance === "ACCEPTED" ? requestPartySize : 1,
+          note: form.get("requestNote"),
+          website: form.get("website"),
+        }),
+      });
+      setRequestSubmitted(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível enviar o pedido.");
     }
   }
 
@@ -199,7 +232,41 @@ export default function InvitationPage() {
             )}
           </section>
         ) : (
-          <p className="guest-guide-rsvp-note">Para confirmares presença e consultares a tua mesa, abre o link individual que recebeste.</p>
+          invite.allowGuestRequests ? (
+            <section className="guest-guide-personal guest-inclusion" aria-labelledby="guest-inclusion-title">
+              <div>
+                <p className="eyebrow">Pedido aos anfitriões</p>
+                <h2 id="guest-inclusion-title">Queres participar?</h2>
+                <p className="guest-guide-rsvp-note">Envia os teus dados e os anfitriões irão rever o pedido. A inclusão só fica confirmada depois da aprovação; depois, entram em contacto pelo meio que escolheres.</p>
+              </div>
+              {requestSubmitted ? (
+                <p className="guest-request-success" role="status"><strong>Pedido enviado.</strong> Os anfitriões vão analisar a informação. Se for aprovado, receberás um convite individual.</p>
+              ) : (
+                <form className="rsvp-form guest-request-form" onSubmit={(event) => void requestInclusion(event)}>
+                  <label>Nome completo<input name="requestName" required minLength={2} maxLength={120} autoComplete="name" /></label>
+                  <fieldset className="guest-request-channels">
+                    <legend>Como preferes ser contactado/a?</legend>
+                    <div>
+                      {([ ["WHATSAPP", "WhatsApp"], ["PHONE", "Chamada ou SMS"], ["EMAIL", "Email"] ] as const).map(([channel, label]) => <label key={channel}>
+                        <input type="checkbox" checked={requestChannels.includes(channel)} onChange={(event) => setRequestChannels((current) => event.target.checked ? [...current, channel] : current.filter((item) => item !== channel))} />
+                        <span>{label}</span>
+                      </label>)}
+                    </div>
+                  </fieldset>
+                  <div className="guest-request-contact">
+                    {requestChannels.includes("EMAIL") && <label>Email<input name="requestEmail" type="email" required maxLength={180} autoComplete="email" /></label>}
+                    {requestChannels.some((channel) => channel === "PHONE" || channel === "WHATSAPP") && <label>{requestChannels.includes("WHATSAPP") && requestChannels.includes("PHONE") ? "Número de WhatsApp e telefone" : requestChannels.includes("WHATSAPP") ? "Número de WhatsApp" : "Número de telefone"}<input name="requestPhone" type="tel" required maxLength={40} autoComplete="tel" placeholder="+244 …" /></label>}
+                  </div>
+                  <small>Os anfitriões podem contactar-te por WhatsApp, chamada/SMS ou email, conforme seleccionares. A Nuvia não envia mensagens automaticamente. Os teus contactos ficam visíveis apenas à equipa organizadora e são usados para tratar este pedido.</small>
+                  <label>A tua resposta<select value={requestAttendance} onChange={(event) => setRequestAttendance(event.target.value as "ACCEPTED" | "DECLINED")}><option value="ACCEPTED">Sim, quero participar</option><option value="DECLINED">Não poderei estar presente</option></select></label>
+                  {requestAttendance === "ACCEPTED" && <label>Número de pessoas<input type="number" min={1} max={10} value={requestPartySize} onChange={(event) => setRequestPartySize(Math.max(1, Math.min(10, Number(event.target.value) || 1)))} /></label>}
+                  <label>Mensagem opcional<textarea name="requestNote" maxLength={400} rows={3} placeholder="Alguma informação que os anfitriões devam saber?" /></label>
+                  <label className="guest-request-honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label>
+                  <button className="button button-primary">Enviar pedido →</button>
+                </form>
+              )}
+            </section>
+          ) : <p className="guest-guide-rsvp-note">Para confirmares presença e consultares a tua mesa, abre o link individual que recebeste.</p>
         )}
         {error && <p className="form-error" role="alert">{error}</p>}
       </div>
