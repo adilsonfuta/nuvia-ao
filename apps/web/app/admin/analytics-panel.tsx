@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 
 type Range = "7d" | "28d" | "90d";
 type Report = {
+  enabled: boolean;
   configured: boolean;
   range: Range;
   updatedAt?: string;
@@ -51,9 +52,11 @@ export default function AnalyticsPanel() {
         <label className="admin-analytics-range">Período<select value={range} onChange={(event) => setRange(event.target.value as Range)}><option value="7d">Últimos 7 dias</option><option value="28d">Últimos 28 dias</option><option value="90d">Últimos 90 dias</option></select></label>
       </header>
 
-      {loading ? <div className="dash-panel admin-analytics-message" role="status">A carregar métricas…</div> : error ? <div className="dash-panel admin-analytics-message"><strong>Não foi possível consultar o GA4</strong><p>{error}</p><button type="button" className="button button-outline compact" onClick={() => void load(range)}>Tentar novamente</button></div> : report && !report.configured ? (
+      {loading ? <div className="dash-panel admin-analytics-message" role="status">A carregar métricas…</div> : error ? <div className="dash-panel admin-analytics-message"><strong>Não foi possível consultar o GA4</strong><p>{error}</p><button type="button" className="button button-outline compact" onClick={() => void load(range)}>Tentar novamente</button></div> : report && !report.enabled ? (
+        <div className="dash-panel admin-analytics-setup"><span className="admin-analytics-icon" aria-hidden="true">Ⅱ</span><div><h3>Métricas GA4 desactivadas</h3><p>A integração está desligada e não faz pedidos ao Google Analytics. Para a activar, define <code>GA4_ENABLED=true</code> no ambiente da API. As credenciais GA4 só são necessárias quando a integração estiver activa.</p></div></div>
+      ) : report && !report.configured ? (
         <div className="dash-panel admin-analytics-setup">
-          <span className="admin-analytics-icon" aria-hidden="true">↗</span><div><h3>Liga o Google Analytics</h3><p>O site já carrega o Google Tag Manager. Para mostrar dados aqui, configura uma conta de serviço com acesso de leitura à propriedade GA4.</p><ol><li>Adiciona o email da conta de serviço como leitor na propriedade Google Analytics.</li><li>Activa a Google Analytics Data API no projecto Google Cloud dessa conta.</li><li>Define <code>GA4_PROPERTY_ID</code>, <code>GA4_SERVICE_ACCOUNT_EMAIL</code> e <code>GA4_SERVICE_ACCOUNT_PRIVATE_KEY</code> no Coolify e reinicia a API.</li></ol></div>
+          <span className="admin-analytics-icon" aria-hidden="true">↗</span><div><h3>Configura o Google Analytics</h3><p>GA4 está activo, mas faltam credenciais para consultar os relatórios. O site pode continuar a funcionar normalmente sem estas variáveis.</p><ol><li>Adiciona o email da conta de serviço como leitor na propriedade Google Analytics.</li><li>Activa a Google Analytics Data API no projecto Google Cloud dessa conta.</li><li>Define <code>GA4_PROPERTY_ID</code>, <code>GA4_SERVICE_ACCOUNT_EMAIL</code> e <code>GA4_SERVICE_ACCOUNT_PRIVATE_KEY</code> no ambiente da API.</li></ol></div>
         </div>
       ) : report?.totals ? (
         <>

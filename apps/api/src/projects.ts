@@ -20,6 +20,7 @@ import {
   EventType,
   ExpenseStatus,
   ExpensePaymentStatus,
+  GuestContactChannel,
   GuestRequestStatus,
   InvitationTheme,
   NotificationType,
@@ -280,6 +281,7 @@ class CreateGuestRequestDto {
   @IsString() @MinLength(2) @MaxLength(120) name!: string;
   @IsOptional() @IsEmail() @MaxLength(180) email?: string;
   @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(3) @IsEnum(GuestContactChannel, { each: true }) contactChannels!: GuestContactChannel[];
   @IsInt() @Min(1) @Max(10) partySize!: number;
   @IsEnum(RsvpDecision) requestedRsvp!: "ACCEPTED" | "DECLINED";
   @IsOptional() @IsString() @MaxLength(400) note?: string;
@@ -1989,7 +1991,12 @@ export class PublicInvitationController {
     if (body.website?.trim()) return { ok: true };
     const email = body.email?.trim().toLowerCase() || null;
     const phone = body.phone?.trim() || null;
-    if (!email && !phone) throw new BadRequestException("Indica um email ou telefone para receberes a resposta.");
+    const wantsEmail = body.contactChannels.includes(GuestContactChannel.EMAIL);
+    const wantsPhone = body.contactChannels.some((channel) => channel === GuestContactChannel.PHONE || channel === GuestContactChannel.WHATSAPP);
+    if (wantsEmail && !email) throw new BadRequestException("Indica o email que queres usar para contacto.");
+    if (wantsPhone && !phone) throw new BadRequestException("Indica o número de telefone ou WhatsApp que queres usar para contacto.");
+    if (email && !wantsEmail) throw new BadRequestException("Remove o email ou selecciona Email como meio de contacto.");
+    if (phone && !wantsPhone) throw new BadRequestException("Remove o telefone ou selecciona Telefone ou WhatsApp como meio de contacto.");
     const duplicate = await this.db.guestRequest.findFirst({
       where: {
         projectId: invitation.projectId,
@@ -2009,6 +2016,7 @@ export class PublicInvitationController {
         name: body.name.trim(),
         email,
         phone,
+        contactChannels: body.contactChannels,
         partySize: body.partySize,
         requestedRsvp: body.requestedRsvp,
         note: body.note?.trim() || null,

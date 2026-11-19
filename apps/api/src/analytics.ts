@@ -22,6 +22,10 @@ function analyticsConfig() {
   return propertyId && email && privateKey ? { propertyId, email, privateKey } : null;
 }
 
+function analyticsEnabled() {
+  return process.env.GA4_ENABLED?.trim().toLowerCase() === "true";
+}
+
 async function getAccessToken(config: NonNullable<ReturnType<typeof analyticsConfig>>) {
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.value;
 
@@ -88,8 +92,9 @@ export class AdminAnalyticsController {
   @Get()
   async getOverview(@Query("range") requestedRange?: string) {
     const range: AnalyticsRange = requestedRange === "7d" || requestedRange === "90d" ? requestedRange : "28d";
+    if (!analyticsEnabled()) return { enabled: false as const, configured: false as const, range };
     const config = analyticsConfig();
-    if (!config) return { configured: false as const, range };
+    if (!config) return { enabled: true as const, configured: false as const, range };
 
     const cached = reportCache.get(range);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
@@ -105,6 +110,7 @@ export class AdminAnalyticsController {
 
       const totals = values(overview.rows?.[0]);
       const result = {
+        enabled: true as const,
         configured: true as const,
         range,
         updatedAt: new Date().toISOString(),

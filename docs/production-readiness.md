@@ -9,6 +9,8 @@ Este documento separa o que o código já suporta das operações que ainda prec
 - O utilizador escolhe explicitamente abrir email ou WhatsApp para enviar um pedido. A plataforma não envia nem confirma a entrega dessa mensagem.
 - Não colocar segredos, bases de dados ou backups em repositórios. A pasta `backups/` está excluída do Git e os ficheiros são criados sem permissões de leitura para outros utilizadores do sistema.
 - Os comprovativos das contribuições ficam fora da pasta pública, com nomes aleatórios e permissões restritas. Em produção, configurar `PRIVATE_UPLOAD_STORAGE_DIR` para volume persistente e privado, incluí-lo nos backups cifrados e definir uma política de retenção/eliminação. O endpoint de leitura exige sessão e acesso ao evento.
+- As capas carregadas para a Biblioteca são convertidas para WebP e ficam em `GUIDE_COVER_STORAGE_DIR`. Em produção, montar esse caminho num volume persistente (`nuvia_guide_covers` no Compose Coolify) e incluí-lo nos backups dos conteúdos.
+- As fotografias carregadas para a galeria dos espaços ficam em `VENUE_PHOTO_STORAGE_DIR`. Em produção, montar esse caminho num volume persistente (`nuvia_venue_photos` no Compose Coolify) e incluí-lo nos backups do catálogo.
 - Documentos de eventos aceitam apenas PDF, JPG e PNG até 10 MB. Os ficheiros são validados pelo conteúdo, cifrados em AES-256-GCM no armazenamento privado, e só podem ser descarregados por membros do evento; uploads, alterações, downloads e remoções entram no histórico. Em produção, configurar uma chave dedicada `PROJECT_DOCUMENT_ENCRYPTION_KEY` e o volume persistente `nuvia_project_documents`; guardar a chave separada dos backups e não a rodar sem voltar a cifrar os ficheiros existentes.
 
 ## Backups e recuperação

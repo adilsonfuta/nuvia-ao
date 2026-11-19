@@ -46,6 +46,7 @@ services:
       RSVP_TOKEN_ENCRYPTION_KEY: ${RSVP_TOKEN_ENCRYPTION_KEY:?Set a base64 32-byte key}
       PROJECT_DOCUMENT_ENCRYPTION_KEY: ${PROJECT_DOCUMENT_ENCRYPTION_KEY:?Set a dedicated base64 32-byte key for private event documents}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      GA4_ENABLED: ${GA4_ENABLED:-false}
       GA4_PROPERTY_ID: ${GA4_PROPERTY_ID:-}
       GA4_SERVICE_ACCOUNT_EMAIL: ${GA4_SERVICE_ACCOUNT_EMAIL:-}
       GA4_SERVICE_ACCOUNT_PRIVATE_KEY: ${GA4_SERVICE_ACCOUNT_PRIVATE_KEY:-}
@@ -54,10 +55,14 @@ services:
       PORTFOLIO_STORAGE_DIR: /app/data/vendor-portfolio
       PRIVATE_UPLOAD_STORAGE_DIR: /app/data/private-contribution-proofs
       PROJECT_DOCUMENT_STORAGE_DIR: /app/data/private-project-documents
+      GUIDE_COVER_STORAGE_DIR: /app/data/guide-covers
+      VENUE_PHOTO_STORAGE_DIR: /app/data/venue-photos
     volumes:
       - nuvia_vendor_portfolio:/app/data/vendor-portfolio
       - nuvia_contribution_proofs:/app/data/private-contribution-proofs
       - nuvia_project_documents:/app/data/private-project-documents
+      - nuvia_guide_covers:/app/data/guide-covers
+      - nuvia_venue_photos:/app/data/venue-photos
     expose:
       - "4000"
     depends_on:
@@ -103,3 +108,5 @@ volumes:
   nuvia_vendor_portfolio:
   nuvia_contribution_proofs:
   nuvia_project_documents:
+  nuvia_guide_covers:
+  nuvia_venue_photos:

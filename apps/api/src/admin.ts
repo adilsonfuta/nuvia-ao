@@ -11,8 +11,11 @@ import {
   Query,
   Res,
   UnauthorizedException,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
 import { AccountStatus, UserRole, VenueStatus, VendorApplicationStatus, VendorClaimStatus, VendorContentStatus, VendorReviewStatus, VendorStatus } from "@casar/database";
 import { compare } from "bcryptjs";
@@ -21,6 +24,7 @@ import { sendStoredVendorImage, vendorSocialPayloadIsSafe } from "./vendor-porta
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -32,11 +36,14 @@ import {
   ValidateIf,
   Max,
   MaxLength,
+  Matches,
   Min,
   MinLength,
 } from "class-validator";
 import { AdminGuard, AdminOnlyGuard, CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
+import { storeGuideCover } from "./guide-covers";
+import { storeVenuePhoto } from "./venue-photos";
 
 class VendorInput {
   @IsString() @MinLength(2) name!: string;
@@ -130,13 +137,15 @@ class VenueInput {
   @IsOptional() @IsString() @MaxLength(100) municipality?: string;
   @IsOptional() @IsString() @MaxLength(300) address?: string;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) mapsUrl?: string;
+  @IsOptional() @IsNumber() @Min(-90) @Max(90) latitude?: number | null;
+  @IsOptional() @IsNumber() @Min(-180) @Max(180) longitude?: number | null;
   @IsOptional() @IsInt() @Min(0) @Max(100000) capacityMin?: number;
   @IsOptional() @IsInt() @Min(1) @Max(100000) capacityMax?: number;
   @IsOptional() @IsNumber() @Min(0) priceFrom?: number;
   @IsOptional() @IsNumber() @Min(0) priceTo?: number;
   @IsOptional() @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) @MaxLength(100, { each: true }) amenities?: string[];
   @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(80, { each: true }) eventTypes?: string[];
-  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUrl({ protocols: ["https"], require_protocol: true }, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @Matches(/^(?:https:\/\/\S+|\/api\/v1\/venues\/photos\/[a-f0-9-]{36}\/image|\/espacos\/demo\/[a-z0-9-]+\.webp)$/i, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
   @IsOptional() @IsString() @MaxLength(40) phone?: string;
   @IsOptional() @IsEmail() @MaxLength(180) email?: string;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) websiteUrl?: string;
@@ -144,6 +153,7 @@ class VenueInput {
   @IsOptional() @IsString() @MaxLength(1000) paymentTerms?: string;
   @IsOptional() @IsString() @MaxLength(1000) cancellationTerms?: string;
   @IsOptional() @IsString() vendorId?: string;
+  @IsOptional() @IsBoolean() isDemo?: boolean;
 }
 class VenuePatch {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(120) name?: string;
@@ -154,13 +164,15 @@ class VenuePatch {
   @IsOptional() @IsString() @MaxLength(100) municipality?: string | null;
   @IsOptional() @IsString() @MaxLength(300) address?: string | null;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) mapsUrl?: string | null;
+  @IsOptional() @IsNumber() @Min(-90) @Max(90) latitude?: number | null;
+  @IsOptional() @IsNumber() @Min(-180) @Max(180) longitude?: number | null;
   @IsOptional() @IsInt() @Min(0) @Max(100000) capacityMin?: number | null;
   @IsOptional() @IsInt() @Min(1) @Max(100000) capacityMax?: number | null;
   @IsOptional() @IsNumber() @Min(0) priceFrom?: number | null;
   @IsOptional() @IsNumber() @Min(0) priceTo?: number | null;
   @IsOptional() @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) @MaxLength(100, { each: true }) amenities?: string[];
   @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(80, { each: true }) eventTypes?: string[];
-  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUrl({ protocols: ["https"], require_protocol: true }, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @Matches(/^(?:https:\/\/\S+|\/api\/v1\/venues\/photos\/[a-f0-9-]{36}\/image|\/espacos\/demo\/[a-z0-9-]+\.webp)$/i, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
   @IsOptional() @IsString() @MaxLength(40) phone?: string | null;
   @IsOptional() @IsEmail() @MaxLength(180) email?: string | null;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) websiteUrl?: string | null;
@@ -169,6 +181,7 @@ class VenuePatch {
   @IsOptional() @IsString() @MaxLength(1000) cancellationTerms?: string | null;
   @IsOptional() @IsString() vendorId?: string | null;
   @IsOptional() @IsEnum(VenueStatus) status?: VenueStatus;
+  @IsOptional() @IsBoolean() isDemo?: boolean;
   @IsOptional() @IsDateString() verifiedAt?: string;
   @ValidateIf((body: VenuePatch) => body.status === VenueStatus.SUSPENDED)
   @IsString() @MinLength(8) @MaxLength(500) reason?: string;
@@ -219,6 +232,9 @@ class GuideInput {
   @IsString() @MinLength(10) summary!: string;
   @IsString() @MinLength(20) body!: string;
   @IsString() category!: string;
+  @IsOptional() @IsInt() @Min(1) @Max(60) readingMinutes?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(10000) sortOrder?: number;
+  @IsOptional() @IsString() @Matches(/^\/(?:guias\/[a-z0-9-]+\.(?:webp|png|jpe?g)|api\/v1\/guides\/covers\/[a-f0-9-]{36}\/image)$/i) coverImage?: string | null;
   @IsOptional()
   @IsEnum({ DRAFT: "DRAFT", PUBLISHED: "PUBLISHED", ARCHIVED: "ARCHIVED" })
   status?: string;
@@ -230,6 +246,9 @@ export class UpdateGuideDto {
   @IsOptional() @IsString() @MinLength(10) @MaxLength(500) summary?: string;
   @IsOptional() @IsString() @MinLength(20) @MaxLength(30000) body?: string;
   @IsOptional() @IsString() @MaxLength(80) category?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(60) readingMinutes?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(10000) sortOrder?: number;
+  @IsOptional() @IsString() @Matches(/^\/(?:guias\/[a-z0-9-]+\.(?:webp|png|jpe?g)|api\/v1\/guides\/covers\/[a-f0-9-]{36}\/image)$/i) coverImage?: string | null;
   @IsOptional()
   @IsEnum({ DRAFT: "DRAFT", PUBLISHED: "PUBLISHED", ARCHIVED: "ARCHIVED" })
   status?: string;
@@ -538,6 +557,8 @@ export class AdminController {
     return this.db.venue.findMany({ orderBy: [{ status: "asc" }, { updatedAt: "desc" }] });
   }
   @Post("venues") async createVenue(@Body() body: VenueInput, @CurrentUser() user: SessionUser) {
+    if ((body.latitude == null) !== (body.longitude == null))
+      throw new BadRequestException("Indica latitude e longitude para marcar o ponto exacto no mapa.");
     if (body.capacityMin !== undefined && body.capacityMax !== undefined && body.capacityMin > body.capacityMax)
       throw new BadRequestException("A capacidade mínima não pode ser superior à máxima.");
     if (body.priceFrom !== undefined && body.priceTo !== undefined && body.priceFrom > body.priceTo)
@@ -548,6 +569,23 @@ export class AdminController {
     await this.db.auditLog.create({ data: { actorId: user.id, action: "VENUE_CREATED", resource: "Venue", resourceId: venue.id, metadata: { status: venue.status, venueType: venue.venueType } } });
     return venue;
   }
+  @Post("venues/photos")
+  @UseInterceptors(FileInterceptor("image", {
+    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+    fileFilter: (_request, file, callback) => {
+      const accepted = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
+      callback(accepted ? null : new BadRequestException("Usa uma imagem JPEG, PNG ou WebP."), accepted);
+    },
+  }))
+  async uploadVenuePhoto(
+    @UploadedFile() file: { buffer: Buffer; mimetype: string } | undefined,
+    @CurrentUser() user: SessionUser,
+  ) {
+    if (!file) throw new BadRequestException("Escolhe uma fotografia JPEG, PNG ou WebP.");
+    const photo = await storeVenuePhoto(file.buffer);
+    await this.db.auditLog.create({ data: { actorId: user.id, action: "VENUE_PHOTO_UPLOADED", resource: "VenuePhoto", resourceId: photo.id, metadata: { byteSize: photo.byteSize, mediaType: "image/webp" } } });
+    return { imageUrl: photo.imageUrl };
+  }
   @Patch("venues/:id") async updateVenue(@Param("id") id: string, @Body() body: VenuePatch, @CurrentUser() user: SessionUser) {
     const existing = await this.db.venue.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("Espaço não encontrado.");
@@ -555,16 +593,21 @@ export class AdminController {
       throw new NotFoundException("Prestador associado não encontrado.");
     const capacityMin = body.capacityMin === undefined ? existing.capacityMin : body.capacityMin;
     const capacityMax = body.capacityMax === undefined ? existing.capacityMax : body.capacityMax;
+    const latitude = body.latitude === undefined ? existing.latitude : body.latitude;
+    const longitude = body.longitude === undefined ? existing.longitude : body.longitude;
     const priceFrom = body.priceFrom === undefined ? (existing.priceFrom === null ? undefined : Number(existing.priceFrom)) : body.priceFrom;
     const priceTo = body.priceTo === undefined ? (existing.priceTo === null ? undefined : Number(existing.priceTo)) : body.priceTo;
     if (capacityMin !== null && capacityMax !== null && capacityMin !== undefined && capacityMax !== undefined && capacityMin > capacityMax)
       throw new BadRequestException("A capacidade mínima não pode ser superior à máxima.");
+    if ((latitude == null) !== (longitude == null))
+      throw new BadRequestException("Indica latitude e longitude para marcar o ponto exacto no mapa.");
     if (priceFrom !== undefined && priceTo !== undefined && priceFrom !== null && priceTo !== null && priceFrom > priceTo)
       throw new BadRequestException("O preço mínimo não pode ser superior ao máximo.");
     if (body.status === VenueStatus.SUSPENDED && !body.reason)
       throw new BadRequestException("Indica o motivo da suspensão para manter o histórico da decisão.");
     const publishing = body.status === VenueStatus.PUBLISHED && existing.status !== VenueStatus.PUBLISHED;
-    if (body.status === VenueStatus.PUBLISHED || (existing.status === VenueStatus.PUBLISHED && !body.status)) {
+    const isDemo = body.isDemo ?? existing.isDemo;
+    if (!isDemo && (body.status === VenueStatus.PUBLISHED || (existing.status === VenueStatus.PUBLISHED && !body.status))) {
       const province = body.province ?? existing.province;
       const municipality = body.municipality ?? existing.municipality;
       const address = body.address ?? existing.address;
@@ -677,7 +720,32 @@ export class AdminController {
     return requirement;
   }
   @Get("guides") guides() {
-    return this.db.guideArticle.findMany({ orderBy: { createdAt: "desc" } });
+    return this.db.guideArticle.findMany({ orderBy: [{ sortOrder: "asc" }, { reviewedAt: "desc" }, { createdAt: "asc" }] });
+  }
+  @Post("guides/covers")
+  @UseInterceptors(FileInterceptor("image", {
+    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+    fileFilter: (_request, file, callback) => {
+      const accepted = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
+      callback(accepted ? null : new BadRequestException("Usa uma imagem JPEG, PNG ou WebP."), accepted);
+    },
+  }))
+  async uploadGuideCover(
+    @UploadedFile() file: { buffer: Buffer; mimetype: string } | undefined,
+    @CurrentUser() user: SessionUser,
+  ) {
+    if (!file) throw new BadRequestException("Escolhe uma imagem JPEG, PNG ou WebP.");
+    const cover = await storeGuideCover(file.buffer);
+    await this.db.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: "GUIDE_COVER_UPLOADED",
+        resource: "GuideArticle",
+        resourceId: cover.id,
+        metadata: { byteSize: cover.byteSize, mediaType: "image/webp" },
+      },
+    });
+    return { coverImage: cover.coverImage };
   }
   @Post("guides") async createGuide(
     @Body() body: GuideInput,
