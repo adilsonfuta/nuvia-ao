@@ -23,14 +23,15 @@ type EmailContent = { subject: string; html: string; text: string };
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
+  private readonly enabled = process.env.RESEND_ENABLED?.trim().toLowerCase() === "true";
   private readonly apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
   private readonly from = process.env.RESEND_FROM_EMAIL?.trim() ?? "";
-  private readonly resend = this.apiKey ? new Resend(this.apiKey) : null;
+  private readonly resend = this.enabled && this.apiKey ? new Resend(this.apiKey) : null;
 
   constructor(private readonly db: DatabaseService) {}
 
   get isConfigured() {
-    return Boolean(this.apiKey && this.from);
+    return this.enabled && Boolean(this.apiKey && this.from);
   }
 
   private async send(to: string, content: EmailContent, idempotencyKey: string): Promise<boolean> {
