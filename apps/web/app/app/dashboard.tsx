@@ -104,6 +104,7 @@ type Table = {
   _count: { guests: number };
 };
 type Detail = Project & {
+  selectedVenue: { id: string; slug: string; name: string; venueType: string; address: string | null; mapsUrl: string | null; province: string | null; municipality: string | null } | null;
   tasks: Task[];
   guests: Guest[];
   expenses: Expense[];
@@ -147,6 +148,7 @@ type Tab =
   | "vendors"
   | "guests"
   | "invitation"
+  | "album"
   | "program"
   | "team"
   | "reports"
@@ -181,7 +183,7 @@ const DASHBOARD_PRIMARY_TABS: { key: Tab; label: string }[] = [
 const DASHBOARD_NAV_GROUPS: { id: string; label: string; keys: Tab[] }[] = [
   { id: "preparations", label: "Preparativos", keys: ["planning", "documents", "vendors", "guests", "program"] },
   { id: "finance", label: "Orçamento e contribuições", keys: ["budget", "contributions"] },
-  { id: "sharing", label: "Partilha", keys: ["invitation", "share"] },
+  { id: "sharing", label: "Partilha", keys: ["invitation", "share", "album"] },
   { id: "management", label: "Gestão", keys: ["team", "reports", "settings"] },
 ];
 const DASHBOARD_TAB_LABEL: Record<Tab, string> = {
@@ -195,6 +197,7 @@ const DASHBOARD_TAB_LABEL: Record<Tab, string> = {
   vendors: "Fornecedores",
   guests: "Convidados",
   invitation: "Convites digitais",
+  album: "Álbum do evento",
   program: "Programa",
   team: "Colaboração",
   reports: "Relatórios",
@@ -211,6 +214,7 @@ const DASHBOARD_TAB_URL: Record<Tab, string> = {
   vendors: "fornecedores",
   guests: "convidados",
   invitation: "convites",
+  album: "album",
   program: "programa",
   team: "colaboracao",
   reports: "relatorios",
@@ -2363,6 +2367,7 @@ export default function Dashboard() {
                     favorites={favorites}
                     requests={data.quoteRequests}
                     venueInquiries={data.venueInquiries}
+                    selectedVenue={data.selectedVenue}
                     onRefresh={() => loadDetail(selected)}
                     onOpenBudget={() => setTab("budget")}
                   />
@@ -2606,9 +2611,9 @@ export default function Dashboard() {
                         </div>
                       </aside>
                     </div>
-                    <EventAlbumPanel projectId={selected} />
                   </section>
                 )}
+                {tab === "album" && <EventAlbumPanel projectId={selected} />}
                 {tab === "program" && (
                   <div className="program-workspace">
                     <section className="dash-panel wide-panel program-switcher-panel">

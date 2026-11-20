@@ -1,15 +1,17 @@
 import {
   BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException,
-  Param, Patch, Post, Put, Req, Res, UploadedFile, UseGuards, UseInterceptors,
+  Param, Patch, Post, Put, Req, Res, UploadedFiles, UseGuards, UseInterceptors,
 } from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
+import { FilesInterceptor } from "@nestjs/platform-express";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
 import { AlbumPhotoStatus } from "@casar/database";
-import { IsBoolean, IsOptional, IsString, MaxLength } from "class-validator";
+import { ArrayMaxSize, ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, IsIn, IsOptional, IsString, MaxLength } from "class-validator";
 import { randomBytes, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Request, Response } from "express";
+import archiver from "archiver";
 import sharp from "sharp";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
@@ -20,6 +22,10 @@ const albumUrl = (token: string) => `/album/${encodeURIComponent(token)}`;
 class AlbumSettingsDto { @IsBoolean() enabled!: boolean }
 class AlbumUploadDto { @IsOptional() @IsString() @MaxLength(80) uploaderName?: string }
 class AlbumModerationDto { @IsString() status!: "APPROVED" | "REJECTED" }
+class AlbumBulkModerationDto {
+  @IsArray() @ArrayNotEmpty() @ArrayUnique() @ArrayMaxSize(500) @IsString({ each: true }) photoIds!: string[];
+  @IsIn(["APPROVED", "REJECTED"]) status!: "APPROVED" | "REJECTED";
+}
 
 @ApiTags("Álbum do evento")
 @ApiCookieAuth("casar_session")
@@ -42,6 +48,28 @@ export class ProjectAlbumController {
       this.db.eventAlbum.upsert({ where: { projectId }, create: { projectId, publicToken: randomBytes(24).toString("base64url") }, update: {}, include: { photos: { orderBy: { createdAt: "desc" } } } }),
     ]);
     return { ...album, canManage: member?.role === "OWNER", sharePath: album.enabled ? albumUrl(album.publicToken) : null, photos: album.photos.map(({ storageKey: _key, ...photo }) => ({ ...photo, imagePath: `/api/v1/albums/${encodeURIComponent(album.publicToken)}/photos/${photo.id}/image` })) };
+  }
+
+  @Get("download")
+  async downloadApproved(@Param("projectId") projectId: string, @CurrentUser() user: SessionUser, @Res() response: Response) {
+    await this.member(projectId, user.id);
+    const album = await this.db.eventAlbum.findUnique({
+      where: { projectId },
+      include: { photos: { where: { status: "APPROVED" }, orderBy: { createdAt: "asc" }, select: { storageKey: true } } },
+    });
+    if (!album?.photos.length) throw new NotFoundException("Ainda não há fotografias aprovadas para descarregar.");
+
+    response.setHeader("Content-Type", "application/zip");
+    response.setHeader("Content-Disposition", 'attachment; filename="nuvia-fotografias-aprovadas.zip"');
+    response.setHeader("Cache-Control", "private, no-store");
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    const zip = archiver("zip", { store: true });
+    zip.on("error", (error) => response.destroy(error));
+    zip.pipe(response);
+    album.photos.forEach((photo, index) => {
+      zip.append(createReadStream(join(storage(), photo.storageKey)), { name: `fotografia-${String(index + 1).padStart(3, "0")}.webp` });
+    });
+    await zip.finalize();
   }
 
   @Put()
@@ -71,6 +99,19 @@ export class ProjectAlbumController {
     const photo = await this.db.eventAlbumPhoto.findFirst({ where: { id: photoId, album: { projectId } } });
     if (!photo) throw new NotFoundException("Fotografia não encontrada.");
     return this.db.eventAlbumPhoto.update({ where: { id: photoId }, data: { status: body.status as AlbumPhotoStatus, reviewedAt: new Date(), reviewedBy: user.id }, select: { id: true, status: true, reviewedAt: true } });
+  }
+
+  @Patch("moderation")
+  async moderateMany(@Param("projectId") projectId: string, @CurrentUser() user: SessionUser, @Body() body: AlbumBulkModerationDto) {
+    const member = await this.member(projectId, user.id, true);
+    if (member.role !== "OWNER") throw new ForbiddenException("Só a pessoa responsável pelo evento pode moderar fotografias.");
+    const album = await this.db.eventAlbum.findUnique({ where: { projectId }, select: { id: true } });
+    if (!album) throw new NotFoundException("Álbum não encontrado.");
+    const result = await this.db.eventAlbumPhoto.updateMany({
+      where: { id: { in: body.photoIds }, albumId: album.id, status: "PENDING" },
+      data: { status: body.status as AlbumPhotoStatus, reviewedAt: new Date(), reviewedBy: user.id },
+    });
+    return { count: result.count };
   }
 
   @Delete("photos/:photoId")
@@ -107,25 +148,41 @@ export class PublicAlbumController {
   }
 
   @Post(":token/photos")
-  @UseInterceptors(FileInterceptor("image", { limits: { fileSize: 8 * 1024 * 1024, files: 1 } }))
-  async upload(@Param("token") token: string, @UploadedFile() file: { buffer?: Buffer; mimetype?: string } | undefined, @Body() body: AlbumUploadDto, @Req() request: Request) {
+  @UseInterceptors(FilesInterceptor("images", 10, { limits: { fileSize: 8 * 1024 * 1024, files: 10 } }))
+  async upload(@Param("token") token: string, @UploadedFiles() files: { buffer?: Buffer; mimetype?: string }[] | undefined, @Body() body: AlbumUploadDto, @Req() request: Request) {
     const album = await this.db.eventAlbum.findFirst({ where: { publicToken: token, enabled: true }, select: { id: true } });
     if (!album) throw new NotFoundException("Este álbum não está disponível.");
+    if (!files?.length || files.length > 10) throw new BadRequestException("Selecciona entre 1 e 10 fotografias por envio.");
     const existingPhotos = await this.db.eventAlbumPhoto.count({ where: { albumId: album.id } });
-    if (existingPhotos >= 500) throw new BadRequestException("Este álbum atingiu o limite de 500 fotografias.");
+    if (existingPhotos + files.length > 500) throw new BadRequestException(`O álbum aceita até 500 fotografias. Ainda há espaço para ${Math.max(0, 500 - existingPhotos)}.`);
+    if (files.some((file) => !file.buffer || !["image/jpeg", "image/png", "image/webp"].includes(file.mimetype ?? ""))) throw new BadRequestException("Todos os ficheiros devem ser fotografias JPG, PNG ou WebP até 8 MB.");
     const address = request.ip || request.socket.remoteAddress || "unknown";
-    if (!(await consumeRateLimitBucket(this.db, `album-upload:${address}:${album.id}`, 8, 60 * 60_000))) throw new BadRequestException("Atingiste o limite de envios por agora.");
-    if (!file?.buffer || !["image/jpeg", "image/png", "image/webp"].includes(file.mimetype ?? "")) throw new BadRequestException("Envia uma fotografia JPG, PNG ou WebP até 8 MB.");
-    let webp: Buffer;
-    try { webp = await sharp(file.buffer, { limitInputPixels: 40_000_000 }).rotate().resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toBuffer(); }
-    catch { throw new BadRequestException("O ficheiro enviado não é uma imagem válida."); }
+    if (!(await consumeRateLimitBucket(this.db, `album-upload:${address}:${album.id}`, 10, 60 * 60_000, new Date(), files.length))) throw new BadRequestException("O limite é de 10 fotografias por hora para este álbum.");
+    let webps: Buffer[];
+    try {
+      webps = [];
+      // Decode/resize one image at a time. Several large phone photos can each
+      // expand to hundreds of MB while Sharp processes them, so Promise.all
+      // can exhaust the API container's memory on a batch upload.
+      for (const file of files) {
+        webps.push(await sharp(file.buffer!, { limitInputPixels: 40_000_000 })
+          .rotate()
+          .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 82 })
+          .toBuffer());
+      }
+    }
+    catch { throw new BadRequestException("Um ou mais ficheiros não são imagens válidas."); }
     await mkdir(storage(), { recursive: true, mode: 0o700 });
-    const storageKey = `${randomUUID()}.webp`;
-    await writeFile(join(storage(), storageKey), webp, { mode: 0o600, flag: "wx" });
-    let photo;
-    try { photo = await this.db.eventAlbumPhoto.create({ data: { albumId: album.id, storageKey, uploaderName: body.uploaderName?.trim() || null } }); }
-    catch (error) { await unlink(join(storage(), storageKey)).catch(() => undefined); throw error; }
-    return { id: photo.id, status: photo.status, message: "Fotografia recebida. Será publicada depois da aprovação dos anfitriões." };
+    const storageKeys = webps.map(() => `${randomUUID()}.webp`);
+    try {
+      await Promise.all(webps.map((webp, index) => writeFile(join(storage(), storageKeys[index]), webp, { mode: 0o600, flag: "wx" })));
+      await this.db.eventAlbumPhoto.createMany({ data: storageKeys.map((storageKey) => ({ albumId: album.id, storageKey, uploaderName: body.uploaderName?.trim() || null })) });
+    } catch (error) {
+      await Promise.all(storageKeys.map((storageKey) => unlink(join(storage(), storageKey)).catch(() => undefined)));
+      throw error;
+    }
+    return { count: files.length, message: `${files.length} ${files.length === 1 ? "fotografia recebida" : "fotografias recebidas"}. ${files.length === 1 ? "Será publicada" : "Serão publicadas"} depois da aprovação dos anfitriões.` };
   }
 
   @Get(":token/photos/:photoId/image")

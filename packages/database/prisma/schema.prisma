@@ -312,6 +312,7 @@ model EventProject {
   currency             String                  @default("AOA")
   budgetLimit          Decimal?                @db.Decimal(14, 2)
   guestEstimate        Int?
+  selectedVenueId      String?
   archivedAt           DateTime?
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
@@ -331,6 +332,8 @@ model EventProject {
   summaryShare         EventSummaryShare?
   album                EventAlbum?
   venueInquiries       VenueInquiry[]
+  venueFavorites       ProjectVenueFavorite[]
+  selectedVenue        Venue?                  @relation("ProjectSelectedVenue", fields: [selectedVenueId], references: [id], onDelete: SetNull)
 
   @@map("Wedding")
 }
@@ -670,38 +673,40 @@ model Vendor {
 }
 
 model Venue {
-  id                String         @id @default(cuid())
-  slug              String         @unique
-  name              String
-  venueType         String
-  description       String?
-  province          String?
-  municipality      String?
-  address           String?
-  mapsUrl           String?
-  latitude          Float?
-  longitude         Float?
-  capacityMin       Int?
-  capacityMax       Int?
-  priceFrom         Decimal?       @db.Decimal(14, 2)
-  priceTo           Decimal?       @db.Decimal(14, 2)
-  amenities         String[]       @default([])
-  eventTypes        String[]       @default([])
-  galleryUrls       String[]       @default([])
-  phone             String?
-  email             String?
-  websiteUrl        String?
-  bookingTerms      String?
-  paymentTerms      String?
-  cancellationTerms String?
-  status            VenueStatus    @default(DRAFT)
-  isDemo            Boolean        @default(false)
-  verifiedAt        DateTime?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-  vendorId          String?
-  vendor            Vendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  inquiries         VenueInquiry[]
+  id                  String                 @id @default(cuid())
+  slug                String                 @unique
+  name                String
+  venueType           String
+  description         String?
+  province            String?
+  municipality        String?
+  address             String?
+  mapsUrl             String?
+  latitude            Float?
+  longitude           Float?
+  capacityMin         Int?
+  capacityMax         Int?
+  priceFrom           Decimal?               @db.Decimal(14, 2)
+  priceTo             Decimal?               @db.Decimal(14, 2)
+  amenities           String[]               @default([])
+  eventTypes          String[]               @default([])
+  galleryUrls         String[]               @default([])
+  phone               String?
+  email               String?
+  websiteUrl          String?
+  bookingTerms        String?
+  paymentTerms        String?
+  cancellationTerms   String?
+  status              VenueStatus            @default(DRAFT)
+  isDemo              Boolean                @default(false)
+  verifiedAt          DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  vendorId            String?
+  vendor              Vendor?                @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  inquiries           VenueInquiry[]
+  projectFavorites    ProjectVenueFavorite[]
+  selectedForProjects EventProject[]         @relation("ProjectSelectedVenue")
 
   @@index([status, province, venueType])
   @@index([capacityMax])
@@ -852,6 +857,17 @@ model VenueInquiry {
 
   @@index([venueId, status, createdAt])
   @@index([userId, createdAt])
+}
+
+model ProjectVenueFavorite {
+  projectId String
+  venueId   String
+  createdAt DateTime     @default(now())
+  project   EventProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  venue     Venue        @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, venueId])
+  @@index([venueId])
 }
 
 model EventAlbum {

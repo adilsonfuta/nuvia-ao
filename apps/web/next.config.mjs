@@ -3,6 +3,11 @@ const apiServer = (process.env.API_INTERNAL_URL ?? 'http://127.0.0.1:4000/api/v1
 const nextConfig = {
   reactStrictMode: true,
   distDir: process.env.NEXT_DIST_DIR || '.next',
+  experimental: {
+    // Public event albums accept up to ten 8 MB photos in one multipart
+    // request. Next's default 10 MB body clone truncates the rewritten request.
+    middlewareClientMaxBodySize: '85mb',
+  },
   async headers() {
     const production = process.env.NODE_ENV === 'production';
     const contentSecurityPolicy = [

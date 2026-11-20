@@ -227,6 +227,8 @@ class UpdateExpensePaymentDto {
 class ProjectVendorFavoriteDto {
   @IsString() vendorId!: string;
 }
+class ProjectVenueFavoriteDto { @IsString() venueId!: string }
+class ProjectVenueSelectionDto { @IsOptional() @IsString() venueId?: string | null }
 class UpdateQuoteRequestDto {
   @IsOptional() @IsEnum(QuoteRequestStatus) status?: QuoteRequestStatus;
   @IsOptional() @IsEnum(AvailabilityStatus) availabilityStatus?: AvailabilityStatus;
@@ -480,6 +482,55 @@ export class ProjectsController {
     });
     return { ok: true };
   }
+  @Get(":id/venues/favorites") async projectVenueFavorites(
+    @Param("id") id: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.owned(id, user.id);
+    return this.db.projectVenueFavorite.findMany({
+      where: { projectId: id, venue: { status: "PUBLISHED" } },
+      include: { venue: true },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+  @Post(":id/venues/favorites") async addProjectVenueFavorite(
+    @Param("id") id: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: ProjectVenueFavoriteDto,
+  ) {
+    await this.owned(id, user.id, true);
+    const venue = await this.db.venue.findFirst({ where: { id: body.venueId, status: "PUBLISHED" }, select: { id: true } });
+    if (!venue) throw new NotFoundException("Espaço não encontrado.");
+    return this.db.projectVenueFavorite.upsert({
+      where: { projectId_venueId: { projectId: id, venueId: venue.id } },
+      create: { projectId: id, venueId: venue.id },
+      update: {},
+      include: { venue: true },
+    });
+  }
+  @Delete(":id/venues/favorites/:venueId") async removeProjectVenueFavorite(
+    @Param("id") id: string,
+    @Param("venueId") venueId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    await this.owned(id, user.id, true);
+    await this.db.projectVenueFavorite.deleteMany({ where: { projectId: id, venueId } });
+    return { ok: true };
+  }
+  @Patch(":id/selected-venue") async selectProjectVenue(
+    @Param("id") id: string,
+    @CurrentUser() user: SessionUser,
+    @Body() body: ProjectVenueSelectionDto,
+  ) {
+    await this.owned(id, user.id, true);
+    if (body.venueId) {
+      const venue = await this.db.venue.findFirst({ where: { id: body.venueId, status: "PUBLISHED" }, select: { id: true } });
+      if (!venue) throw new NotFoundException("Espaço não encontrado.");
+    }
+    const project = await this.db.eventProject.update({ where: { id }, data: { selectedVenueId: body.venueId ?? null }, include: { selectedVenue: { select: { id: true, slug: true, name: true, venueType: true, address: true, mapsUrl: true, province: true, municipality: true } } } });
+    await this.logActivity(id, user.id, "PROJECT_VENUE_SELECTED", "Venue", body.venueId ?? "none", { subject: project.selectedVenue?.name ?? "Espaço removido" });
+    return project.selectedVenue;
+  }
   @Post() async create(
     @CurrentUser() user: SessionUser,
     @Body() body: CreateProjectDto,
@@ -537,6 +588,7 @@ export class ProjectsController {
     const project = await this.db.eventProject.findUnique({
       where: { id },
       include: {
+        selectedVenue: { select: { id: true, slug: true, name: true, venueType: true, address: true, mapsUrl: true, province: true, municipality: true } },
         events: true,
         tasks: {
           orderBy: { createdAt: "asc" },

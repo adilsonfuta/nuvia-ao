@@ -7,14 +7,15 @@ export async function consumeRateLimitBucket(
   max: number,
   windowMs: number,
   now = new Date(),
+  cost = 1,
 ) {
   const key = createHash("sha256").update(value).digest("hex");
   const resetAt = new Date(now.getTime() + windowMs);
   const rows = await db.$queryRaw<Array<{ count: number }>>`
     INSERT INTO "RateLimitBucket" ("key", "count", "resetAt", "updatedAt")
-    VALUES (${key}, 1, ${resetAt}, NOW())
+    VALUES (${key}, ${cost}, ${resetAt}, NOW())
     ON CONFLICT ("key") DO UPDATE SET
-      "count" = CASE WHEN "RateLimitBucket"."resetAt" <= NOW() THEN 1 ELSE "RateLimitBucket"."count" + 1 END,
+      "count" = CASE WHEN "RateLimitBucket"."resetAt" <= NOW() THEN ${cost} ELSE "RateLimitBucket"."count" + ${cost} END,
       "resetAt" = CASE WHEN "RateLimitBucket"."resetAt" <= NOW() THEN EXCLUDED."resetAt" ELSE "RateLimitBucket"."resetAt" END,
       "updatedAt" = NOW()
     RETURNING "count"
