@@ -37,6 +37,8 @@ export function createPersistentRateLimit(
     const publicSupportRequest = request.method === "POST" && /^\/api\/v1\/support\/public-requests(?:\?|$)/.test(path);
     const emailChangeRequest = request.method === "POST" && /^\/api\/v1\/auth\/email-change\/request(?:\?|$)/.test(path);
     const guestInclusionRequest = request.method === "POST" && /^\/api\/v1\/invitations\/[^/]+\/requests(?:\?|$)/.test(path);
+    const albumUpload = request.method === "POST" && /^\/api\/v1\/albums\/[^/]+\/photos(?:\?|$)/.test(path);
+    const venueInquiry = request.method === "POST" && /^\/api\/v1\/venues\/[^/]+\/inquiries(?:\?|$)/.test(path);
     const limited =
       path.startsWith("/api/v1/auth/login") ||
       path.startsWith("/api/v1/auth/register") ||
@@ -44,6 +46,8 @@ export function createPersistentRateLimit(
       path.startsWith("/api/v1/auth/password-reset/reset") ||
       emailChangeRequest ||
       guestInclusionRequest ||
+      albumUpload ||
+      venueInquiry ||
       path.startsWith("/api/v1/vendor-applications") ||
       uploadRequest ||
       projectDocumentUpload ||
@@ -58,9 +62,11 @@ export function createPersistentRateLimit(
         .replace(/\/vendor-portal\/[^/]+\/portfolio$/, "/vendor-portal/:vendorId/portfolio")
         .replace(/\/contributions\/[A-Za-z0-9_-]+$/, "/contributions/:token")
         .replace(/\/invitations\/[^/]+\/requests$/, "/invitations/:slug/requests")
+        .replace(/\/albums\/[^/]+\/photos$/, "/albums/:token/photos")
+        .replace(/\/venues\/[^/]+\/inquiries$/, "/venues/:venueId/inquiries")
         .replace(/\/[^/]+\/rsvp$/, "/:slug/rsvp");
-      const routeMax = guestInclusionRequest ? Math.min(max, 5) : emailChangeRequest ? Math.min(max, 3) : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.min(max, 8) : contributionLookup ? Math.max(max, 60) : max;
-      const routeWindowMs = guestInclusionRequest || emailChangeRequest ? Math.max(windowMs, 10 * 60_000) : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.max(windowMs, 10 * 60_000) : windowMs;
+      const routeMax = guestInclusionRequest ? Math.min(max, 5) : emailChangeRequest ? Math.min(max, 3) : albumUpload ? 8 : venueInquiry ? 5 : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.min(max, 8) : contributionLookup ? Math.max(max, 60) : max;
+      const routeWindowMs = guestInclusionRequest || emailChangeRequest || albumUpload ? Math.max(windowMs, 60 * 60_000) : venueInquiry ? Math.max(windowMs, 10 * 60_000) : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.max(windowMs, 10 * 60_000) : windowMs;
       const address = String(
         request.ip ?? request.socket?.remoteAddress ?? "unknown",
       );

@@ -235,7 +235,7 @@ export class AuthController {
   async me(@CurrentUser() user: SessionUser) {
     const account = await this.db.user.findUnique({
       where: { id: user.id },
-      select: { id: true, email: true, name: true, role: true, emailEventNotifications: true, weeklyDigestEnabled: true },
+      select: { id: true, email: true, name: true, role: true, emailEventNotifications: true, weeklyDigestEnabled: true, weeklyDigestLastStatus: true, weeklyDigestLastError: true, weeklyDigestLastAttemptAt: true },
     });
     if (!account) throw new UnauthorizedException('A sessão já não está associada a uma conta activa.');
     return { user: account };
@@ -256,7 +256,7 @@ export class AuthController {
         ...(enablingDigest ? { weeklyDigestLastSentAt: new Date(), weeklyDigestClaimedAt: null } : {}),
         ...(body.weeklyDigestEnabled === false ? { weeklyDigestClaimedAt: null } : {}),
       },
-      select: { emailEventNotifications: true, weeklyDigestEnabled: true },
+      select: { emailEventNotifications: true, weeklyDigestEnabled: true, weeklyDigestLastStatus: true, weeklyDigestLastError: true, weeklyDigestLastAttemptAt: true },
     });
   }
 

@@ -7,11 +7,13 @@ import { ListPagination, useListPage } from '../lib/list-pagination';
 
 export type ProjectVendorFavorite = { vendor: { id: string; slug: string; name: string; category: string; province: string | null; municipality: string | null; priceFrom: string | null; priceTo: string | null; isDemo: boolean } };
 export type VendorReview = { id: string; rating: number; communicationRating: number; punctualityRating: number; qualityRating: number; comment: string | null; isAnonymous: boolean; status: 'PENDING'|'APPROVED'|'REJECTED'; rejectionReason: string | null; response: string | null; responseStatus: 'PENDING'|'APPROVED'|'REJECTED'|null; responseReason: string | null; createdAt: string };
-export type VendorRequest = { id: string; message: string; status: 'NEW'|'SENT'|'RESPONDED'|'HIRED'|'CLOSED'; createdAt: string; quotedAmount: string | number | null; responseNote: string | null; respondedAt: string | null; expense: { id: string; title: string; amount: string | number } | null; review: VendorReview | null; vendor: { id: string; slug: string; name: string; category: string; province: string | null; isDemo: boolean } };
+export type VendorRequest = { id: string; message: string; status: 'NEW'|'SENT'|'RESPONDED'|'HIRED'|'CLOSED'; createdAt: string; eventDate?: string | null; partySize?: number | null; availabilityStatus?: 'PENDING'|'AVAILABLE'|'UNAVAILABLE'|'ALTERNATIVE_PROPOSED'; quotedAmount: string | number | null; responseNote: string | null; respondedAt: string | null; expense: { id: string; title: string; amount: string | number } | null; review: VendorReview | null; vendor: { id: string; slug: string; name: string; category: string; province: string | null; isDemo: boolean } };
+export type EventVenueInquiry = { id: string; message: string; status: 'NEW'|'SENT'|'RESPONDED'|'HIRED'|'CLOSED'; eventDate: string | null; partySize: number | null; availabilityStatus: 'PENDING'|'AVAILABLE'|'UNAVAILABLE'|'ALTERNATIVE_PROPOSED'; quotedAmount: string | number | null; responseNote: string | null; createdAt: string; venue: { id: string; name: string; slug: string } };
 type DirectoryVendor = { id:string;slug:string;name:string;category:string;description:string|null;province:string|null;municipality:string|null;priceFrom:string|null;priceTo:string|null;verifiedAt:string|null;isDemo:boolean };
 type VendorProfile = DirectoryVendor & { services:string[];serviceAreas:string[];galleryUrls:string[];capacityMin:number|null;capacityMax:number|null;bookingTerms:string|null;paymentTerms:string|null;cancellationTerms:string|null;phone:string|null;email:string|null;hasManager:boolean };
 
 const statusLabel: Record<VendorRequest['status'], string> = { NEW: 'Guardado · ainda não enviado', SENT: 'Enviado manualmente', RESPONDED: 'Resposta recebida', HIRED: 'Contratado', CLOSED: 'Fechado' };
+const availabilityLabel = (status?: VendorRequest['availabilityStatus']) => status === 'AVAILABLE' ? 'Disponível' : status === 'UNAVAILABLE' ? 'Indisponível' : status === 'ALTERNATIVE_PROPOSED' ? 'Alternativa proposta' : 'Por confirmar';
 const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat('pt-AO', { dateStyle: 'medium', timeZone: 'Africa/Luanda' }).format(new Date(value)) : 'Por definir';
 const quoteLink = (projectId: string, slug: string) => `/fornecedores/${slug}?projectId=${encodeURIComponent(projectId)}`;
 const vendorCategories = ['Catering','Decoração','Fotografia e vídeo','Música e DJ','Beleza','Transportes','Bolos e doces','Organização','Espaços'];
@@ -20,13 +22,14 @@ type ReviewDraft = { requestId: string; rating: number; communicationRating: num
 const luandaDateKey = (value: Date) => Object.fromEntries(new Intl.DateTimeFormat('en', { timeZone: 'Africa/Luanda', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(value).map(part => [part.type, part.value]));
 const isPastEventDate = (value: string | null) => { if (!value) return false; const event = luandaDateKey(new Date(value)); const today = luandaDateKey(new Date()); return `${event.year}-${event.month}-${event.day}` < `${today.year}-${today.month}-${today.day}`; };
 
-export function VendorWorkspace({ projectId, projectTitle, projectDate, province, guestEstimate, favorites, requests, onRefresh, onOpenBudget }: {
+export function VendorWorkspace({ projectId, projectTitle, projectDate, province, guestEstimate, favorites, requests, venueInquiries, onRefresh, onOpenBudget }: {
   projectId: string; projectTitle: string; projectDate: string | null; province: string | null; guestEstimate: number | null;
-  favorites: ProjectVendorFavorite[]; requests: VendorRequest[]; onRefresh: () => Promise<void>; onOpenBudget: () => void;
+  favorites: ProjectVendorFavorite[]; requests: VendorRequest[]; venueInquiries: EventVenueInquiry[]; onRefresh: () => Promise<void>; onOpenBudget: () => void;
 }) {
   const [filter, setFilter] = useState('ALL');
   const [requestPage, setRequestPage] = useState(1); const [requestPageSize, setRequestPageSize] = useState(10);
   const [favoritePage, setFavoritePage] = useState(1); const [favoritePageSize, setFavoritePageSize] = useState(10);
+  const [venuePage, setVenuePage] = useState(1); const [venuePageSize, setVenuePageSize] = useState(10);
   const [catalogPage, setCatalogPage] = useState(1); const [catalogPageSize, setCatalogPageSize] = useState(10);
   const [responseId, setResponseId] = useState('');
   const [responseAmount, setResponseAmount] = useState('');
@@ -54,6 +57,7 @@ export function VendorWorkspace({ projectId, projectTitle, projectDate, province
   const { pageItems: visibleRequests } = useListPage(filteredRequests, requestPage, requestPageSize);
   const { pageItems: visibleFavorites } = useListPage(favorites, favoritePage, favoritePageSize);
   const { pageItems: visibleVendors } = useListPage(vendorResults, catalogPage, catalogPageSize);
+  const { pageItems: visibleVenueInquiries } = useListPage(venueInquiries, venuePage, venuePageSize);
 
   useEffect(() => { void searchVendors(); }, []);
   useEffect(() => {
@@ -95,7 +99,7 @@ export function VendorWorkspace({ projectId, projectTitle, projectDate, province
     setQuoteBusy(true); setQuoteNotice(''); setProfileError('');
     const context = [`Evento: ${projectTitle}`,`Data: ${formatDate(projectDate)}`,`Local: ${province || 'Por definir'}`,`Participantes: ${guestEstimate || 'Por definir'}`].join('\n');
     try {
-      const result = await api<{ deliveredToPortal: boolean; vendorName: string }>('/quote-requests',{method:'POST',body:JSON.stringify({projectId,vendorId:selectedVendor.id,message:`${context}\n\n${quoteMessage.trim()}`})});
+      const result = await api<{ deliveredToPortal: boolean; vendorName: string }>('/quote-requests',{method:'POST',body:JSON.stringify({projectId,vendorId:selectedVendor.id,eventDate:projectDate || undefined,partySize:guestEstimate || undefined,message:`${context}\n\n${quoteMessage.trim()}`})});
       setQuoteMessage(''); setQuoteNotice(result.deliveredToPortal ? `Pedido enviado para a área Nuvia de ${result.vendorName}. A resposta aparecerá aqui.` : 'Pedido guardado no acompanhamento deste evento. Este perfil ainda não recebe pedidos dentro da Nuvia; contacta o prestador pelos dados do perfil.'); await onRefresh();
     } catch (err) { setProfileError(err instanceof Error ? err.message : 'Não foi possível guardar o pedido.'); }
     finally { setQuoteBusy(false); }
@@ -167,12 +171,15 @@ export function VendorWorkspace({ projectId, projectTitle, projectDate, province
       </article>)}</div><ListPagination page={favoritePage} pageSize={favoritePageSize} total={favorites.length} label="favoritos" onPageChange={setFavoritePage} onPageSizeChange={(size) => { setFavoritePageSize(size); setFavoritePage(1); }} /></> : <div className="vendor-shortlist-empty"><p>Ainda não guardaste fornecedores para este evento.</p><a href={`/fornecedores?projectId=${encodeURIComponent(projectId)}`}>Explorar o directório →</a></div>}
     </section>
 
+    {venueInquiries.length > 0 && <section className="vendor-requests venue-event-requests" aria-labelledby="venue-event-requests-title"><header className="vendor-workspace-heading"><div><p className="eyebrow">Espaços</p><h3 id="venue-event-requests-title">Pedidos de disponibilidade <span>{venueInquiries.length}</span></h3></div><p>Pedidos e respostas dos espaços associados a este evento.</p></header><div className="vendor-request-list">{visibleVenueInquiries.map(inquiry => <article className="vendor-request-card" key={inquiry.id}><header><div><small>Recebido em {formatDate(inquiry.createdAt)}</small><h4>{inquiry.venue.name}</h4></div><span className={`vendor-request-status ${inquiry.status.toLowerCase()}`}>{inquiry.status === 'RESPONDED' ? 'Respondido' : inquiry.status === 'CLOSED' ? 'Fechado' : 'Por responder'}</span></header><div className="vendor-inquiry-meta">{inquiry.eventDate && <span>Data do evento: {formatDate(inquiry.eventDate)}</span>}{inquiry.partySize && <span>{inquiry.partySize} pessoas</span>}</div><p className="vendor-request-message">{inquiry.message}</p>{inquiry.status === 'RESPONDED' && <div className="vendor-request-availability"><strong>Disponibilidade:</strong> {availabilityLabel(inquiry.availabilityStatus)}{inquiry.quotedAmount != null && ` · ${formatAOA(inquiry.quotedAmount)}`}{inquiry.responseNote && <p>{inquiry.responseNote}</p>}</div>}</article>)}</div><ListPagination page={venuePage} pageSize={venuePageSize} total={venueInquiries.length} label="pedidos de espaços" onPageChange={setVenuePage} onPageSizeChange={size => { setVenuePageSize(size); setVenuePage(1); }}/></section>}
+
     <section className="vendor-requests" aria-labelledby="vendor-requests-title"><header className="vendor-workspace-heading"><div><p className="eyebrow">Acompanhamento</p><h3 id="vendor-requests-title">Pedidos de informação <span>{requests.length}</span></h3></div><label>Mostrar<select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="ALL">Todos os estados</option><option value="NEW">Guardados</option><option value="SENT">Enviados manualmente</option><option value="RESPONDED">Com resposta</option><option value="HIRED">Contratados</option><option value="CLOSED">Fechados</option></select></label></header>
       <p className="vendor-request-disclosure">Os pedidos para perfis com gestão activa são entregues na área Nuvia do prestador. Nos restantes perfis, usa os contactos publicados e regista o acompanhamento aqui. Perfis demonstrativos são fictícios.</p>
       {filteredRequests.length ? <><div className="vendor-request-list">{visibleRequests.map((request) => <article className="vendor-request-card" key={request.id}>
         <header><div><small>{request.vendor.category} · Criado em {formatDate(request.createdAt)}</small><h4><button type="button" className="vendor-request-vendor-link" onClick={()=>void openVendor(request.vendor.slug)}>{request.vendor.name}</button></h4></div><span className={`vendor-request-status ${request.status.toLowerCase()}`}>{statusLabel[request.status]}</span></header>
         {request.vendor.isDemo && <p className="vendor-demo-note">Perfil demonstrativo: nenhum prestador real será contactado.</p>}
         <p className="vendor-request-message">{request.message}</p>
+        {request.status === 'RESPONDED' && <p className="vendor-request-availability"><strong>Disponibilidade:</strong> {availabilityLabel(request.availabilityStatus)}{request.responseNote ? ` · ${request.responseNote}` : ''}</p>}
         {request.status === 'NEW' && <small className="vendor-next-action">Próximo passo: contactar o fornecedor directamente; depois actualiza o estado aqui.</small>}
         {request.status === 'SENT' && <button type="button" className="vendor-inline-action" onClick={() => { setResponseId(responseId === request.id ? '' : request.id); setResponseAmount(request.quotedAmount ? String(request.quotedAmount) : ''); setResponseNote(request.responseNote || ''); }}>Registar resposta recebida</button>}
         {(request.status === 'RESPONDED' || responseId === request.id) && <form className="vendor-response-form" onSubmit={(event) => void saveResponse(event, request.id)}><label>Valor recebido (Kz)<input type="number" min="0" step="any" value={responseAmount} onChange={(event) => setResponseAmount(event.target.value)} placeholder="Ainda não informado"/></label><label>Notas da resposta<textarea rows={2} maxLength={2000} value={responseNote} onChange={(event) => setResponseNote(event.target.value)} placeholder="Disponibilidade, condições ou detalhes recebidos"/></label><button className="button button-outline compact" disabled={busyId === request.id}>{busyId === request.id ? 'A guardar…' : 'Guardar resposta'}</button></form>}

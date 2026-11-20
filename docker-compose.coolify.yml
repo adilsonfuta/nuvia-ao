@@ -58,12 +58,14 @@ services:
       PROJECT_DOCUMENT_STORAGE_DIR: /app/data/private-project-documents
       GUIDE_COVER_STORAGE_DIR: /app/data/guide-covers
       VENUE_PHOTO_STORAGE_DIR: /app/data/venue-photos
+      EVENT_ALBUM_STORAGE_DIR: /app/data/private-event-albums
     volumes:
       - nuvia_vendor_portfolio:/app/data/vendor-portfolio
       - nuvia_contribution_proofs:/app/data/private-contribution-proofs
       - nuvia_project_documents:/app/data/private-project-documents
       - nuvia_guide_covers:/app/data/guide-covers
       - nuvia_venue_photos:/app/data/venue-photos
+      - nuvia_event_albums:/app/data/private-event-albums
     expose:
       - "4000"
     depends_on:
@@ -111,3 +113,4 @@ volumes:
   nuvia_project_documents:
   nuvia_guide_covers:
   nuvia_venue_photos:
+  nuvia_event_albums:

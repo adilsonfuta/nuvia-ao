@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ProjectKind } from "@casar/contracts";
 import { api } from "../lib/api";
 import { ListPagination, useListPage } from "../lib/list-pagination";
+import { clearLocalDraft, readLocalDraft, writeLocalDraft } from "../lib/local-drafts";
 import "./documents.css";
 
 type DocumentStatus = "TODO" | "IN_PROGRESS" | "READY" | "NOT_REQUIRED";
@@ -51,6 +52,8 @@ const fileSize = (bytes: number | null) => {
 export function DocumentsPanel({ projectId, projectKind, canEdit }: { projectId: string; projectKind: ProjectKind; canEdit: boolean }) {
   const [items, setItems] = useState<ProjectDocument[]>([]);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [draftReady, setDraftReady] = useState(false);
+  const localDraftKey = `nuvia:document-draft:${projectId}`;
   const [editing, setEditing] = useState<Record<string, Draft>>({});
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -64,6 +67,18 @@ export function DocumentsPanel({ projectId, projectKind, canEdit }: { projectId:
   async function refresh() {
     setItems(await api<ProjectDocument[]>(`/projects/${projectId}/documents`));
   }
+  useEffect(() => {
+    setDraftReady(false);
+    const saved = readLocalDraft<Draft>(localDraftKey);
+    if (saved) setDraft(saved);
+    setDraftReady(true);
+  }, [localDraftKey]);
+  useEffect(() => {
+    if (!draftReady) return;
+    if (draft.title.trim()) writeLocalDraft(localDraftKey, draft);
+    else clearLocalDraft(localDraftKey);
+  }, [draft, draftReady, localDraftKey]);
+
   useEffect(() => {
     setLoading(true);
     api<ProjectDocument[]>(`/projects/${projectId}/documents`).then(setItems).catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível carregar os documentos.")).finally(() => setLoading(false));
@@ -132,7 +147,7 @@ export function DocumentsPanel({ projectId, projectKind, canEdit }: { projectId:
 
     {canEdit && <section className="dash-panel documents-suggestions"><div className="documents-section-title"><div><h3>Sugestões para este evento</h3><p>São pontos de partida editáveis, não uma lista de requisitos obrigatórios.</p></div></div><div className="documents-suggestion-list">{listedSuggestions.map((item) => { const added = items.some((saved) => saved.title.toLocaleLowerCase("pt-AO") === item.title.toLocaleLowerCase("pt-AO")); return <article key={item.title}><span><strong>{item.title}</strong><small>{item.category}</small></span><button type="button" className="button button-outline compact" disabled={busy || added} onClick={() => void addSuggestion(item)}>{added ? "Adicionado" : "Adicionar"}</button></article>; })}</div>{projectKind === "WEDDING" && <small className="documents-legal-note">Os requisitos do casamento civil variam conforme a conservatória e a situação dos nubentes. Confirma a lista aplicável directamente com o serviço.</small>}</section>}
 
-    {canEdit && <form className="dash-panel documents-create-form" onSubmit={(event) => void createItem(event)}><div className="documents-section-title"><div><h3>Adicionar documento ou comprovativo</h3><p>Cria um item personalizado e, se quiseres, anexa o ficheiro depois.</p></div></div><div className="documents-form-grid"><label>Nome do item<input required maxLength={160} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Ex.: Contrato do espaço"/></label><label>Categoria<input maxLength={80} value={draft.category} onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))}/></label><label>Responsável<input maxLength={120} value={draft.assigneeName} onChange={(event) => setDraft((current) => ({ ...current, assigneeName: event.target.value }))} placeholder="Opcional"/></label><label>Prazo<input type="date" value={draft.dueAt} onChange={(event) => setDraft((current) => ({ ...current, dueAt: event.target.value }))}/></label><label className="documents-notes-field">Notas<textarea maxLength={1500} value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Notas privadas para a equipa do evento"/></label></div><button className="button button-primary" disabled={busy}>{busy ? "A guardar…" : "Adicionar à lista"}</button><p className="documents-privacy-note">Os ficheiros são privados e só ficam acessíveis a membros deste evento. Aceitamos PDF, JPG ou PNG até 10 MB.</p></form>}
+    {canEdit && <form className="dash-panel documents-create-form" onSubmit={(event) => void createItem(event)}><div className="documents-section-title"><div><h3>Adicionar documento ou comprovativo</h3><p>Cria um item personalizado e, se quiseres, anexa o ficheiro depois.</p></div></div><div className="documents-form-grid"><label>Nome do item<input required maxLength={160} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Ex.: Contrato do espaço"/></label><label>Categoria<input maxLength={80} value={draft.category} onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))}/></label><label>Responsável<input maxLength={120} value={draft.assigneeName} onChange={(event) => setDraft((current) => ({ ...current, assigneeName: event.target.value }))} placeholder="Opcional"/></label><label>Prazo<input type="date" value={draft.dueAt} onChange={(event) => setDraft((current) => ({ ...current, dueAt: event.target.value }))}/></label><label className="documents-notes-field">Notas<textarea maxLength={1500} value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Notas privadas para a equipa do evento"/></label></div><button className="button button-primary" disabled={busy}>{busy ? "A guardar…" : "Adicionar à lista"}</button><p className="documents-privacy-note">Rascunho guardado apenas neste dispositivo durante 24 horas; os ficheiros nunca são guardados localmente. Os documentos carregados são privados e acessíveis só aos membros do evento. Aceitamos PDF, JPG ou PNG até 10 MB.</p></form>}
 
     <section className="dash-panel documents-list-panel"><div className="documents-list-heading"><div><h3>Lista do evento</h3><p>{counts.total} {counts.total === 1 ? "item" : "itens"} guardados.</p></div><div className="documents-list-filters"><label><span className="visually-hidden">Pesquisar documentos</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar"/></label><label><span className="visually-hidden">Filtrar por estado</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="ALL">Todos os estados</option>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div></div>
       {loading ? <p className="documents-empty">A carregar a lista…</p> : visibleItems.length ? <div className="documents-list">{displayedItems.map((item) => { const values = editing[item.id] ?? editDraft(item); const isEditing = Boolean(editing[item.id]); return <article className="document-card" key={item.id}><div className="document-card-main"><div className="document-card-heading"><div><span className="document-category">{item.category}</span><h4>{item.title}</h4></div><span className={`document-status ${statusClasses[item.status]}`}>{statusLabels[item.status]}</span></div>{item.notes && !isEditing && <p className="document-notes">{item.notes}</p>}<div className="document-card-meta">{item.assigneeName && <span>Responsável: {item.assigneeName}</span>}{item.dueAt && <span>Prazo: {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium" }).format(new Date(item.dueAt))}</span>}{item.fileUploadedAt && <span>Ficheiro carregado em {new Intl.DateTimeFormat("pt-AO", { dateStyle: "medium" }).format(new Date(item.fileUploadedAt))}</span>}</div>

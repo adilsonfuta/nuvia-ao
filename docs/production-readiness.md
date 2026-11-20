@@ -15,7 +15,11 @@ Este documento separa o que o código já suporta das operações que ainda prec
 
 ## Backups e recuperação
 
-Executar `DATABASE_URL='...' ./scripts/backup-postgres.sh` num ambiente que tenha `pg_dump` instalado. Guardar os dumps cifrados fora do servidor da aplicação, com acesso restrito e retenção definida. O processo de produção deve agendar backups e testar periodicamente a recuperação num banco separado; criar um ficheiro não comprova que a recuperação funciona.
+Executar `DATABASE_URL='...' BACKUP_REQUIRE_OFFSITE=true ./scripts/backup-postgres.sh` num ambiente que tenha `pg_dump` instalado. O script valida o arquivo com `pg_restore --list`, limita permissões, cifra com `age` e envia cópia imutável para um destino `rclone`. Em produção, configura `AGE_RECIPIENT`, `RCLONE_REMOTE` e `BACKUP_RETENTION_DAYS`; agenda-o fora do container efémero da API (por exemplo, cron no host ou um job externo) pelo menos diariamente. Não guardes a chave privada `age` no mesmo servidor nem no mesmo destino dos backups.
+
+Exemplo de cron no host, depois de guardar as variáveis em `/etc/nuvia/backup.env` com permissões `600`: `15 2 * * * cd /caminho/do/repo && set -a && . /etc/nuvia/backup.env && set +a && BACKUP_REQUIRE_OFFSITE=true ./scripts/backup-postgres.sh >> /var/log/nuvia-backup.log 2>&1`. Agenda também `scripts/backup-coolify-volumes.sh` com `BACKUP_VOLUMES` a conter os nomes completos dos volumes; usa as ferramentas `age`, `rclone` e `docker` instaladas no host.
+
+Depois de cada backup, confirma que o ficheiro chegou ao destino remoto. Pelo menos trimestralmente, usa uma base vazia e isolada: `RESTORE_DATABASE_URL='postgresql://.../nuvia_restore_test' ./scripts/verify-postgres-backup.sh caminho/para/backup.dump.age`. A validação faz um restauro completo; não uses a URL da base de produção. Regista data, resultado e duração do exercício. As imagens e documentos também precisam de cópia: agenda `BACKUP_VOLUMES='nome-volume1 nome-volume2 …' ./scripts/backup-coolify-volumes.sh` no host Coolify para os volumes persistentes (`nuvia_event_albums`, `nuvia_project_documents`, `nuvia_contribution_proofs`, `nuvia_vendor_portfolio`, `nuvia_guide_covers` e `nuvia_venue_photos`). O script cria tarballs cifrados antes de os enviar para o destino remoto. Usa os nomes reais listados por `docker volume ls`, que no Coolify têm um prefixo do recurso. Para testar um arquivo sem tocar no volume de produção: `AGE_IDENTITY=/caminho/privado/age.key ./scripts/verify-coolify-volume-backup.sh caminho/para/backup.tar.gz.age`; o script extrai num volume temporário e remove-o ao terminar.
 
 Para restaurar um dump validado num banco vazio: `pg_restore --no-owner --no-acl --dbname="$DATABASE_URL" caminho/para/backup.dump`. Confirmar a versão do PostgreSQL e executar a recuperação primeiro num ambiente isolado.
 
@@ -31,7 +35,7 @@ Para restaurar um dump validado num banco vazio: `pg_restore --no-owner --no-acl
 ## Fornecedores e informação civil
 
 - Rever candidaturas com contacto directo antes de criar um perfil pendente. A conversão administrativa não publica nem verifica automaticamente o negócio.
-- Contactar fornecedores fora da plataforma até existir um canal de entrega com consentimento, registo de tentativa e tratamento de falhas.
+- Pedidos de disponibilidade e orçamento para fornecedores e espaços associados a uma conta activa chegam à caixa de entrada do prestador e guardam a data, dimensão do evento, estado de disponibilidade e resposta. Perfis de demonstração ou espaços sem responsável não recebem pedidos; a página deve manter essa limitação visível.
 - Só marcar perfis e contactos como revistos depois de confirmar a identidade, os dados de contacto e a informação publicada.
 - Cada requisito civil publicado deve ter fonte oficial, âmbito, data de revisão e responsável editorial. A interface deve continuar a recomendar confirmação na Conservatória competente.
 
@@ -45,4 +49,6 @@ Para restaurar um dump validado num banco vazio: `pg_restore --no-owner --no-acl
 - Executar testes automatizados, percursos no browser com contas de teste, revisão de acessos administrativos e teste de recuperação.
 - Convites individuais por email podem ser enviados pelo Resend quando este está activo e configurado. O envio por WhatsApp não é integrado e a plataforma não processa pagamentos. Pedidos podem chegar à caixa de entrada interna apenas quando o fornecedor tem perfil activo associado a uma conta; perfis demonstrativos ou sem responsável continuam a exigir contacto manual.
 - A funcionalidade de contribuições regista transferências feitas fora da Nuvia. O total só inclui contribuições confirmadas manualmente pela organização; não há processamento nem confirmação automática de pagamentos.
+- Convites por email guardam estado de envio e tentativa. Uma falha pode ser reenviada a partir da lista de convidados. A resposta de envio do fornecedor de email confirma a aceitação do pedido pelo Resend, não a leitura pelo destinatário.
+- O álbum do evento fica desligado até ser activado pela pessoa responsável. Os uploads públicos são privados e aguardam moderação; fotografias aprovadas são visíveis a qualquer pessoa com o link activo. Revogar/desactivar o link não remove as imagens. Definir uma rotina de retenção e cópia do volume `nuvia_event_albums` antes de activar em produção.
 - Emails transaccionais usam Resend e ficam desligados por padrão. Antes de activar recuperação de palavra-passe e outros envios em produção, configura `RESEND_ENABLED=true`, uma chave API e um remetente num domínio validado; mantém a chave apenas nos segredos do serviço `api`. Com o envio desligado, fluxos que dependem de email não ficam disponíveis em produção, enquanto notificações internas continuam a funcionar.

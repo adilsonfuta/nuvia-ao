@@ -103,6 +103,19 @@ enum QuoteRequestStatus {
   CLOSED
 }
 
+enum AvailabilityStatus {
+  PENDING
+  AVAILABLE
+  UNAVAILABLE
+  ALTERNATIVE_PROPOSED
+}
+
+enum AlbumPhotoStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum RsvpStatus {
   PENDING
   ACCEPTED
@@ -195,11 +208,15 @@ model User {
   weeklyDigestEnabled              Boolean                   @default(false)
   weeklyDigestLastSentAt           DateTime?
   weeklyDigestClaimedAt            DateTime?
+  weeklyDigestLastStatus           String?
+  weeklyDigestLastError            String?
+  weeklyDigestLastAttemptAt        DateTime?
   createdAt                        DateTime                  @default(now())
   updatedAt                        DateTime                  @updatedAt
   projects                         ProjectMember[]
   assignedTasks                    Task[]                    @relation("TaskAssignee")
   quoteRequests                    QuoteRequest[]
+  venueInquiries                   VenueInquiry[]
   auditLogs                        AuditLog[]
   sessions                         Session[]
   passwordResetTokens              PasswordResetToken[]
@@ -312,6 +329,8 @@ model EventProject {
   notifications        Notification[]
   contributionCampaign ContributionCampaign?
   summaryShare         EventSummaryShare?
+  album                EventAlbum?
+  venueInquiries       VenueInquiry[]
 
   @@map("Wedding")
 }
@@ -448,6 +467,9 @@ model Guest {
   rsvpTokenPreviousHash      String?       @unique
   rsvpTokenPreviousExpiresAt DateTime?
   invitationSentAt           DateTime?
+  invitationEmailStatus      String?
+  invitationEmailError       String?
+  invitationEmailAttemptedAt DateTime?
   createdAt                  DateTime      @default(now())
   project                    EventProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   seatingTable               SeatingTable? @relation(fields: [seatingTableId], references: [id], onDelete: SetNull)
@@ -648,8 +670,8 @@ model Vendor {
 }
 
 model Venue {
-  id                String      @id @default(cuid())
-  slug              String      @unique
+  id                String         @id @default(cuid())
+  slug              String         @unique
   name              String
   venueType         String
   description       String?
@@ -661,24 +683,25 @@ model Venue {
   longitude         Float?
   capacityMin       Int?
   capacityMax       Int?
-  priceFrom         Decimal?    @db.Decimal(14, 2)
-  priceTo           Decimal?    @db.Decimal(14, 2)
-  amenities         String[]    @default([])
-  eventTypes        String[]    @default([])
-  galleryUrls       String[]    @default([])
+  priceFrom         Decimal?       @db.Decimal(14, 2)
+  priceTo           Decimal?       @db.Decimal(14, 2)
+  amenities         String[]       @default([])
+  eventTypes        String[]       @default([])
+  galleryUrls       String[]       @default([])
   phone             String?
   email             String?
   websiteUrl        String?
   bookingTerms      String?
   paymentTerms      String?
   cancellationTerms String?
-  status            VenueStatus @default(DRAFT)
-  isDemo            Boolean     @default(false)
+  status            VenueStatus    @default(DRAFT)
+  isDemo            Boolean        @default(false)
   verifiedAt        DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
   vendorId          String?
-  vendor            Vendor?     @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendor            Vendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  inquiries         VenueInquiry[]
 
   @@index([status, province, venueType])
   @@index([capacityMax])
@@ -783,26 +806,77 @@ model ProjectVendorFavorite {
 }
 
 model QuoteRequest {
-  id             String             @id @default(cuid())
-  projectId      String             @map("weddingId")
-  userId         String
-  vendorId       String
-  message        String
-  status         QuoteRequestStatus @default(NEW)
-  vendorViewedAt DateTime?
-  quotedAmount   Decimal?           @db.Decimal(14, 2)
-  responseNote   String?
-  respondedAt    DateTime?
-  createdAt      DateTime           @default(now())
-  project        EventProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  vendor         Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  expense        Expense?
-  review         VendorReview?
+  id                 String             @id @default(cuid())
+  projectId          String             @map("weddingId")
+  userId             String
+  vendorId           String
+  message            String
+  status             QuoteRequestStatus @default(NEW)
+  vendorViewedAt     DateTime?
+  quotedAmount       Decimal?           @db.Decimal(14, 2)
+  responseNote       String?
+  respondedAt        DateTime?
+  eventDate          DateTime?
+  partySize          Int?
+  availabilityStatus AvailabilityStatus @default(PENDING)
+  createdAt          DateTime           @default(now())
+  project            EventProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor             Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  expense            Expense?
+  review             VendorReview?
 
   @@index([projectId, createdAt])
   @@index([vendorId, status])
   @@index([vendorId, vendorViewedAt])
+}
+
+model VenueInquiry {
+  id                 String             @id @default(cuid())
+  venueId            String
+  userId             String
+  projectId          String?
+  eventDate          DateTime?
+  partySize          Int?
+  message            String
+  status             QuoteRequestStatus @default(NEW)
+  availabilityStatus AvailabilityStatus @default(PENDING)
+  quotedAmount       Decimal?           @db.Decimal(14, 2)
+  responseNote       String?
+  respondedAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  venue              Venue              @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project            EventProject?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([venueId, status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model EventAlbum {
+  id          String            @id @default(cuid())
+  projectId   String            @unique
+  publicToken String            @unique
+  enabled     Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  project     EventProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  photos      EventAlbumPhoto[]
+}
+
+model EventAlbumPhoto {
+  id           String           @id @default(cuid())
+  albumId      String
+  storageKey   String           @unique
+  uploaderName String?
+  status       AlbumPhotoStatus @default(PENDING)
+  reviewedAt   DateTime?
+  reviewedBy   String?
+  createdAt    DateTime         @default(now())
+  album        EventAlbum       @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@index([albumId, status, createdAt])
 }
 
 model VendorReview {

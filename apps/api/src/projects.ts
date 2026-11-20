@@ -24,6 +24,7 @@ import {
   GuestRequestStatus,
   InvitationTheme,
   NotificationType,
+  AvailabilityStatus,
   ProjectKind,
   QuoteRequestStatus,
   TaskPriority,
@@ -62,28 +63,71 @@ const projectTaskTemplates: Record<ProjectKind, { title: string; category: strin
     { title: "Definir cerimónia e celebração", category: "Cerimónia" },
     { title: "Preparar a primeira lista de convidados", category: "Convidados" },
     { title: "Comparar espaços e fornecedores", category: "Fornecedores" },
+    { title: "Definir orçamento e reserva para imprevistos", category: "Orçamento" },
+    { title: "Escolher traje, alianças e beleza", category: "Preparativos" },
+    { title: "Preparar convites e prazo de confirmação", category: "Convites" },
+    { title: "Organizar mesas, transporte e apoio aos convidados", category: "Logística" },
+    { title: "Confirmar horários e pagamentos com fornecedores", category: "Confirmações" },
     { title: "Combinar responsabilidades com a família", category: "Colaboração" },
   ],
   ALAMBAMENTO: [
     { title: "Conversar entre famílias sobre o pedido", category: "Famílias" },
     { title: "Definir data, local e participantes", category: "Planeamento" },
     { title: "Preparar a lista de itens e responsabilidades com ambas as famílias", category: "Tradições e itens" },
+    { title: "Confirmar a lista de pedidos com os representantes das famílias", category: "Tradições e itens" },
+    { title: "Distribuir responsabilidades e contribuições", category: "Colaboração" },
     { title: "Estimar os custos por categoria", category: "Orçamento" },
+    { title: "Escolher espaço, alimentação e decoração", category: "Fornecedores" },
+    { title: "Preparar a lista de convidados e confirmações", category: "Convidados" },
+    { title: "Organizar transporte, montagem e horários", category: "Logística" },
     { title: "Partilhar o plano e distribuir responsabilidades", category: "Colaboração" },
   ],
   PARTY: [
     { title: "Definir o motivo, formato e duração da festa", category: "Planeamento" },
     { title: "Escolher data e espaço", category: "Espaço" },
     { title: "Preparar a lista de convidados", category: "Convidados" },
+    { title: "Definir orçamento e número máximo de participantes", category: "Orçamento" },
     { title: "Comparar catering, música e decoração", category: "Fornecedores" },
+    { title: "Confirmar horário, acesso e regras do espaço", category: "Logística" },
+    { title: "Planear actividades e momentos principais", category: "Programa" },
+    { title: "Organizar convites, confirmações e necessidades alimentares", category: "Convidados" },
+    { title: "Confirmar pagamentos, montagem e limpeza", category: "Confirmações" },
     { title: "Distribuir tarefas pela equipa", category: "Colaboração" },
   ],
   OTHER: [
     { title: "Definir o objectivo e formato do evento", category: "Planeamento" },
     { title: "Escolher data e local", category: "Logística" },
     { title: "Preparar uma estimativa de participantes", category: "Convidados" },
+    { title: "Definir orçamento, prioridades e margem de segurança", category: "Orçamento" },
+    { title: "Confirmar requisitos, autorizações e acessibilidade", category: "Preparação" },
+    { title: "Comparar serviços e fornecedores adequados ao evento", category: "Fornecedores" },
+    { title: "Criar programa com horários e responsáveis", category: "Programa" },
+    { title: "Preparar convites e recolher confirmações", category: "Comunicação" },
+    { title: "Confirmar logística, pagamentos e plano alternativo", category: "Confirmações" },
     { title: "Estimar custos e prioridades", category: "Orçamento" },
     { title: "Convidar pessoas para colaborar", category: "Colaboração" },
+  ],
+};
+const projectProgramTemplates: Record<ProjectKind, { title: string; type: EventType }[]> = {
+  WEDDING: [
+    { title: "Cerimónia civil", type: EventType.CIVIL },
+    { title: "Cerimónia religiosa (se aplicável)", type: EventType.RELIGIOUS },
+    { title: "Recepção e festa", type: EventType.RECEPTION },
+  ],
+  ALAMBAMENTO: [
+    { title: "Encontro e apresentação das famílias", type: EventType.ALAMBAMENTO },
+    { title: "Pedido tradicional", type: EventType.ALAMBAMENTO },
+    { title: "Convívio e refeição", type: EventType.RECEPTION },
+  ],
+  PARTY: [
+    { title: "Recepção dos convidados", type: EventType.RECEPTION },
+    { title: "Momento principal da festa", type: EventType.CUSTOM },
+    { title: "Encerramento", type: EventType.CUSTOM },
+  ],
+  OTHER: [
+    { title: "Acolhimento dos participantes", type: EventType.CUSTOM },
+    { title: "Programa principal", type: EventType.CUSTOM },
+    { title: "Encerramento", type: EventType.CUSTOM },
   ],
 };
 const vendorBudgetCategory: Record<string, string> = {
@@ -185,6 +229,7 @@ class ProjectVendorFavoriteDto {
 }
 class UpdateQuoteRequestDto {
   @IsOptional() @IsEnum(QuoteRequestStatus) status?: QuoteRequestStatus;
+  @IsOptional() @IsEnum(AvailabilityStatus) availabilityStatus?: AvailabilityStatus;
   @IsOptional() @IsNumber() @Min(0) quotedAmount?: number | null;
   @IsOptional() @IsString() @MaxLength(2000) responseNote?: string | null;
 }
@@ -457,9 +502,9 @@ export class ProjectsController {
         budgetLimit: body.budgetLimit,
         guestEstimate: body.guestEstimate,
         members: { create: { userId: user.id, role: "OWNER" } },
-        events: body.eventType
-          ? {
-              create: {
+        events: {
+          create: body.eventType
+            ? [{
                 title:
                   body.eventType === "CIVIL"
                     ? "Cerimónia civil"
@@ -472,9 +517,9 @@ export class ProjectsController {
                           : "Outro momento",
                 type: body.eventType,
                 startsAt: body.date ? new Date(body.date) : undefined,
-              },
-            }
-          : undefined,
+              }]
+            : projectProgramTemplates[kind],
+        },
         tasks: {
           create: projectTaskTemplates[kind],
         },
@@ -522,6 +567,11 @@ export class ProjectsController {
             review: { select: { id: true, rating: true, communicationRating: true, punctualityRating: true, qualityRating: true, comment: true, isAnonymous: true, status: true, rejectionReason: true, response: true, responseStatus: true, responseReason: true, createdAt: true } },
           },
           orderBy: { createdAt: "desc" },
+        },
+        venueInquiries: {
+          include: { venue: { select: { id: true, name: true, slug: true } } },
+          orderBy: { createdAt: "desc" },
+          take: 100,
         },
       },
     });
@@ -917,7 +967,12 @@ export class ProjectsController {
         url: `${webOrigin()}/c/${invitation.slug}?token=${encodeURIComponent(exposed.rsvpToken)}`,
         key: `guest-request-approved/${requestId}`,
       });
-      if (invitationSent) await this.db.guest.update({ where: { id: guest.id }, data: { invitationSentAt: new Date() } });
+      await this.db.guest.update({ where: { id: guest.id }, data: {
+        invitationEmailStatus: invitationSent ? "SENT" : "FAILED",
+        invitationEmailError: invitationSent ? null : "O serviço de email não confirmou o envio.",
+        invitationEmailAttemptedAt: new Date(),
+        ...(invitationSent ? { invitationSentAt: new Date() } : {}),
+      } });
     }
     return { guest: await exposeGuestRsvpToken(this.db, guest), invitationSent };
   }
@@ -1544,9 +1599,14 @@ export class ProjectsController {
         url: eventUrl,
         key: `${id}/${guest.id}/${invitation.updatedAt.getTime()}/${Date.now()}`,
       });
+      await this.db.guest.update({ where: { id: guest.id }, data: {
+        invitationEmailStatus: delivered ? "SENT" : "FAILED",
+        invitationEmailError: delivered ? null : "O serviço de email não confirmou o envio.",
+        invitationEmailAttemptedAt: new Date(),
+        ...(delivered ? { invitationSentAt: new Date() } : {}),
+      } });
       if (delivered) {
         sent += 1;
-        await this.db.guest.update({ where: { id: guest.id }, data: { invitationSentAt: new Date() } });
       }
     }
     return { sent, requested: new Set(body.guestIds).size, message: sent ? `${sent} convite(s) enviado(s) por email.` : "Não foi possível enviar os convites. Confirma a configuração de email e tenta novamente." };
@@ -1627,6 +1687,7 @@ export class ProjectsController {
       where: { id: requestId },
       data: {
         status: body.status,
+        availabilityStatus: body.availabilityStatus,
         quotedAmount: body.quotedAmount === null ? null : body.quotedAmount,
         responseNote: body.responseNote,
         respondedAt:
