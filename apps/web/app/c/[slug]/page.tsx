@@ -54,10 +54,10 @@ export default function InvitationPage() {
   const [token, setToken] = useState("");
   const [invite, setInvite] = useState<Invitation | null>(null);
   const [status, setStatus] = useState("");
-  const [partySize, setPartySize] = useState(1);
+  const [partySize, setPartySize] = useState("1");
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [requestAttendance, setRequestAttendance] = useState<"ACCEPTED" | "DECLINED">("ACCEPTED");
-  const [requestPartySize, setRequestPartySize] = useState(1);
+  const [requestPartySize, setRequestPartySize] = useState("1");
   const [requestChannels, setRequestChannels] = useState<Array<"WHATSAPP" | "PHONE" | "EMAIL">>([]);
   const [error, setError] = useState("");
 
@@ -68,7 +68,7 @@ export default function InvitationPage() {
       .then((item) => {
         setInvite(item);
         if (item.recipient?.rsvp) {
-          setPartySize(item.recipient.rsvp.partySize);
+          setPartySize(String(item.recipient.rsvp.partySize));
           setStatus(item.recipient.rsvp.status === "DECLINED" ? "declined" : "accepted");
         }
       })
@@ -111,7 +111,7 @@ export default function InvitationPage() {
           phone: String(form.get("requestPhone") || "").trim() || undefined,
           contactChannels: requestChannels,
           requestedRsvp: requestAttendance,
-          partySize: requestAttendance === "ACCEPTED" ? requestPartySize : 1,
+          partySize: requestAttendance === "ACCEPTED" ? Number(requestPartySize) : 1,
           note: form.get("requestNote"),
           website: form.get("website"),
         }),
@@ -221,7 +221,7 @@ export default function InvitationPage() {
                 {status !== "declined" && (
                   <label>
                     Número de pessoas
-                    <input name="partySize" type="number" min="1" max={invite.recipient.maxPartySize} value={partySize} onChange={(event) => setPartySize(Number(event.target.value))} />
+                    <input name="partySize" type="number" min="1" max={invite.recipient.maxPartySize} step="1" required value={partySize} onChange={(event) => setPartySize(event.target.value)} />
                   </label>
                 )}
                 <button className="button button-primary">Enviar resposta →</button>
@@ -259,7 +259,7 @@ export default function InvitationPage() {
                   </div>
                   <small>Os anfitriões podem contactar-te por WhatsApp, chamada/SMS ou email, conforme seleccionares. A Nuvia não envia mensagens automaticamente. Os teus contactos ficam visíveis apenas à equipa organizadora e são usados para tratar este pedido.</small>
                   <label>A tua resposta<select value={requestAttendance} onChange={(event) => setRequestAttendance(event.target.value as "ACCEPTED" | "DECLINED")}><option value="ACCEPTED">Sim, quero participar</option><option value="DECLINED">Não poderei estar presente</option></select></label>
-                  {requestAttendance === "ACCEPTED" && <label>Número de pessoas<input type="number" min={1} max={10} value={requestPartySize} onChange={(event) => setRequestPartySize(Math.max(1, Math.min(10, Number(event.target.value) || 1)))} /></label>}
+                  {requestAttendance === "ACCEPTED" && <label>Número de pessoas<input type="number" min={1} max={10} step={1} required value={requestPartySize} onChange={(event) => setRequestPartySize(event.target.value)} /></label>}
                   <label>Mensagem opcional<textarea name="requestNote" maxLength={400} rows={3} placeholder="Alguma informação que os anfitriões devam saber?" /></label>
                   <label className="guest-request-honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label>
                   <button className="button button-primary">Enviar pedido →</button>

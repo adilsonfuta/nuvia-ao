@@ -16,7 +16,8 @@ import { ProjectActivityController } from './project-activity';
 import { ProjectDocumentsController } from './project-documents';
 import { AdminAnalyticsController } from './analytics';
 import { EmailService } from './email';
-import { EmailDigestWorker } from './email-digest';
+import { EmailDigestController, EmailDigestWorker } from './email-digest';
+import { ProjectAlbumController, PublicAlbumController } from './event-album';
 
 @Controller('health')
 class HealthController {
@@ -25,7 +26,7 @@ class HealthController {
 }
 
 @Module({
-  controllers: [HealthController, AuthController, AdminController, AdminAnalyticsController, SupportController, PublicSupportController, ProjectsController, ProjectActivityController, ProjectDocumentsController, PublicInvitationController, PublicEventSummaryController, NotificationsController, VendorsController, CatalogConfigController, VendorFavoritesController, QuoteRequestsController, GuidesController, LegalController, VenuesController, VendorApplicationsController, VendorPortalController, PublicVendorPortfolioController, ProjectContributionsController, PublicContributionsController],
+  controllers: [HealthController, AuthController, AdminController, AdminAnalyticsController, SupportController, PublicSupportController, ProjectsController, ProjectActivityController, ProjectDocumentsController, PublicInvitationController, PublicEventSummaryController, NotificationsController, VendorsController, CatalogConfigController, VendorFavoritesController, QuoteRequestsController, GuidesController, LegalController, VenuesController, VendorApplicationsController, VendorPortalController, PublicVendorPortfolioController, ProjectContributionsController, PublicContributionsController, ProjectAlbumController, PublicAlbumController, EmailDigestController],
   providers: [DatabaseService, SessionGuard, AdminGuard, AdminOnlyGuard, SupportStaffGuard, EmailService, EmailDigestWorker],
 })
 export class AppModule {}
