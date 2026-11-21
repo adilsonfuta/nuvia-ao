@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { api } from "../lib/api";
 import { formatAOA } from "../lib/format";
+import { clearLocalDraft, readLocalDraft, writeLocalDraft } from "../lib/local-drafts";
 import {
   luandaDateInput,
   luandaDateTimeInput,
@@ -27,10 +28,11 @@ import { ReportsPanel } from "./reports-panel";
 import { NotificationCenter } from "./notification-center";
 import { ActivityLogPanel } from "./activity-log-panel";
 import { DocumentsPanel } from "./documents-panel";
+import { EventAlbumPanel } from "./event-album-panel";
 import { ListPagination, PaginatedList, slicePage, useListPage } from "../lib/list-pagination";
 import type { ProjectKind, ProjectSummary } from "@casar/contracts";
 
-type User = { id: string; email: string; name: string | null; role?: "USER" | "SUPPORT" | "MODERATOR" | "ADMIN"; emailEventNotifications?: boolean; weeklyDigestEnabled?: boolean };
+type User = { id: string; email: string; name: string | null; role?: "USER" | "SUPPORT" | "MODERATOR" | "ADMIN"; emailEventNotifications?: boolean; weeklyDigestEnabled?: boolean; weeklyDigestLastStatus?: "SENDING" | "SENT" | "FAILED" | "SKIPPED" | null; weeklyDigestLastError?: string | null; weeklyDigestLastAttemptAt?: string | null };
 type Project = ProjectSummary & {
   budgetLimit: number | string | null;
   guestEstimate: number | null;
@@ -58,6 +60,7 @@ type Guest = {
   rsvps: { status: string; partySize: number; source?: "PUBLIC_LINK" | "MANUAL" }[];
 };
 type Expense = BudgetExpense;
+type VenueInquiry = { id: string; message: string; status: "NEW" | "SENT" | "RESPONDED" | "HIRED" | "CLOSED"; eventDate: string | null; partySize: number | null; availabilityStatus: "PENDING" | "AVAILABLE" | "UNAVAILABLE" | "ALTERNATIVE_PROPOSED"; quotedAmount: string | number | null; responseNote: string | null; createdAt: string; venue: { id: string; name: string; slug: string } };
 type Invite = {
   slug: string;
   headline: string | null;
@@ -70,7 +73,12 @@ type Invite = {
   allowGuestRequests: boolean;
 };
 type InvitationTheme = Invite["theme"];
-const INVITATION_MESSAGE = "Será uma alegria celebrar este momento contigo.";
+const invitationMessageFor = (kind: Project["kind"] | undefined) => ({
+  WEDDING: "Será uma alegria celebrar este momento contigo. Esperamos partilhar este dia especial na tua companhia.",
+  ALAMBAMENTO: "As nossas famílias têm a alegria de te convidar para este momento de união e tradição.",
+  PARTY: "Queremos celebrar contigo. Junta-te a nós para um momento de alegria e convívio.",
+  OTHER: "Será uma alegria contar com a tua presença nesta celebração.",
+}[kind || "WEDDING"]);
 const INVITATION_THEMES: {
   value: InvitationTheme;
   label: string;
@@ -96,6 +104,7 @@ type Table = {
   _count: { guests: number };
 };
 type Detail = Project & {
+  selectedVenue: { id: string; slug: string; name: string; venueType: string; address: string | null; mapsUrl: string | null; province: string | null; municipality: string | null } | null;
   tasks: Task[];
   guests: Guest[];
   expenses: Expense[];
@@ -116,6 +125,7 @@ type Detail = Project & {
   }[];
   invitations: Invite[];
   quoteRequests: VendorRequest[];
+  venueInquiries: VenueInquiry[];
   metrics: {
     tasksDone: number;
     tasksTotal: number;
@@ -138,6 +148,7 @@ type Tab =
   | "vendors"
   | "guests"
   | "invitation"
+  | "album"
   | "program"
   | "team"
   | "reports"
@@ -172,7 +183,7 @@ const DASHBOARD_PRIMARY_TABS: { key: Tab; label: string }[] = [
 const DASHBOARD_NAV_GROUPS: { id: string; label: string; keys: Tab[] }[] = [
   { id: "preparations", label: "Preparativos", keys: ["planning", "documents", "vendors", "guests", "program"] },
   { id: "finance", label: "Orçamento e contribuições", keys: ["budget", "contributions"] },
-  { id: "sharing", label: "Partilha", keys: ["invitation", "share"] },
+  { id: "sharing", label: "Partilha", keys: ["invitation", "share", "album"] },
   { id: "management", label: "Gestão", keys: ["team", "reports", "settings"] },
 ];
 const DASHBOARD_TAB_LABEL: Record<Tab, string> = {
@@ -186,6 +197,7 @@ const DASHBOARD_TAB_LABEL: Record<Tab, string> = {
   vendors: "Fornecedores",
   guests: "Convidados",
   invitation: "Convites digitais",
+  album: "Álbum do evento",
   program: "Programa",
   team: "Colaboração",
   reports: "Relatórios",
@@ -202,6 +214,7 @@ const DASHBOARD_TAB_URL: Record<Tab, string> = {
   vendors: "fornecedores",
   guests: "convidados",
   invitation: "convites",
+  album: "album",
   program: "programa",
   team: "colaboracao",
   reports: "relatorios",
@@ -398,6 +411,7 @@ export default function Dashboard() {
     useState<Expense["status"]>("ESTIMATED");
   const [expenseDueAt, setExpenseDueAt] = useState("");
   const [expenseTaskId, setExpenseTaskId] = useState("");
+  const [expenseDraftLoadedFor, setExpenseDraftLoadedFor] = useState("");
   const [tables, setTables] = useState<Table[]>([]);
   const [favorites, setFavorites] = useState<ProjectVendorFavorite[]>([]);
   const [inviteHeadline, setInviteHeadline] = useState("");
@@ -413,6 +427,23 @@ export default function Dashboard() {
   const skipUrlSync = useRef(false);
   const firstUrlSync = useRef(true);
   const selectedRef = useRef(selected);
+  useEffect(() => {
+    if (!selected) return;
+    setExpenseDraftLoadedFor("");
+    const saved = readLocalDraft<{ title: string; category: string; amount: string; status: Expense["status"]; dueAt: string; taskId: string }>(`nuvia:expense-draft:${selected}`);
+    if (saved) {
+      setExpenseTitle(saved.title); setExpenseCategory(saved.category); setExpenseAmount(saved.amount);
+      setExpenseStatus(saved.status); setExpenseDueAt(saved.dueAt); setExpenseTaskId(saved.taskId);
+    }
+    setExpenseDraftLoadedFor(selected);
+  }, [selected]);
+  useEffect(() => {
+    if (!selected || expenseDraftLoadedFor !== selected || editingExpenseId) return;
+    const key = `nuvia:expense-draft:${selected}`;
+    const draft = { title: expenseTitle, category: expenseCategory, amount: expenseAmount, status: expenseStatus, dueAt: expenseDueAt, taskId: expenseTaskId };
+    if (expenseTitle.trim() || expenseAmount.trim()) writeLocalDraft(key, draft);
+    else clearLocalDraft(key);
+  }, [selected, expenseDraftLoadedFor, editingExpenseId, expenseTitle, expenseCategory, expenseAmount, expenseStatus, expenseDueAt, expenseTaskId]);
   selectedRef.current = selected;
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -428,7 +459,7 @@ export default function Dashboard() {
     if (invitationDraftProject.current !== id) {
       const savedInvite = detail.invitations[0];
       setInviteHeadline(savedInvite?.headline || detail.title);
-      setInviteMessage(savedInvite?.message || INVITATION_MESSAGE);
+      setInviteMessage(savedInvite?.message || invitationMessageFor(detail.kind));
       setInviteTheme(savedInvite?.theme || "CLASSIC");
       setInvitePublicNotes(savedInvite?.publicNotes || "");
       setInviteDressCode(savedInvite?.dressCode || "");
@@ -893,6 +924,7 @@ export default function Dashboard() {
     }
   }
   function resetExpenseForm() {
+    if (selected) clearLocalDraft(`nuvia:expense-draft:${selected}`);
     setExpenseTitle("");
     setExpenseAmount("");
     setExpenseCategory("Outros");
@@ -1092,7 +1124,7 @@ export default function Dashboard() {
         method: "POST",
         body: JSON.stringify({
           headline: inviteHeadline.trim() || data?.title,
-          message: inviteMessage.trim() || INVITATION_MESSAGE,
+          message: inviteMessage.trim() || invitationMessageFor(data.kind),
           theme: inviteTheme,
           publicNotes: invitePublicNotes.trim() || null,
           dressCode: inviteDressCode.trim() || null,
@@ -1174,7 +1206,7 @@ export default function Dashboard() {
     if (!user || savingEmailPreferences) return;
     setSavingEmailPreferences(true);
     try {
-      const updated = await api<Pick<User, "emailEventNotifications" | "weeklyDigestEnabled">>("/auth/email-preferences", {
+      const updated = await api<Pick<User, "emailEventNotifications" | "weeklyDigestEnabled" | "weeklyDigestLastStatus" | "weeklyDigestLastError" | "weeklyDigestLastAttemptAt">>("/auth/email-preferences", {
         method: "PATCH",
         body: JSON.stringify({ [key]: value }),
       });
@@ -1186,6 +1218,17 @@ export default function Dashboard() {
     } finally {
       setSavingEmailPreferences(false);
     }
+  }
+  async function retryWeeklyDigest() {
+    if (!user || savingEmailPreferences) return;
+    setSavingEmailPreferences(true);
+    try {
+      const result = await api<Pick<User, "weeklyDigestLastStatus" | "weeklyDigestLastError" | "weeklyDigestLastAttemptAt">>("/email-digest/retry", { method: "POST" });
+      setUser(current => current ? { ...current, ...result } : current);
+      setNotice(result.weeklyDigestLastStatus === "SENT" ? "Resumo semanal enviado pelo serviço de email." : result.weeklyDigestLastError || "O resumo ainda não foi enviado.");
+      setError("");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível repetir o envio do resumo."); }
+    finally { setSavingEmailPreferences(false); }
   }
   async function requestEmailChange(event: FormEvent) {
     event.preventDefault();
@@ -1383,13 +1426,13 @@ export default function Dashboard() {
   const savedInvitation = data?.invitations[0];
   const displayedInvitationHeadline =
     inviteHeadline.trim() || data?.title || "O nosso evento";
-  const displayedInvitationMessage = inviteMessage.trim() || INVITATION_MESSAGE;
+  const displayedInvitationMessage = inviteMessage.trim() || invitationMessageFor(data?.kind);
   const signInReturnPath = `/dashboard?tab=${DASHBOARD_TAB_URL[tab]}${selected ? `&event=${encodeURIComponent(selected)}` : ""}`;
   const invitationHasChanges = savedInvitation
     ? displayedInvitationHeadline !==
         (savedInvitation.headline || data?.title) ||
       displayedInvitationMessage !==
-        (savedInvitation.message || INVITATION_MESSAGE) ||
+        (savedInvitation.message || invitationMessageFor(data?.kind)) ||
       inviteTheme !== (savedInvitation.theme || "CLASSIC")
       || invitePublicNotes.trim() !== (savedInvitation.publicNotes || "")
       || inviteDressCode.trim() !== (savedInvitation.dressCode || "")
@@ -2255,6 +2298,7 @@ export default function Dashboard() {
                     limit={data.budgetLimit}
                     confirmedContributions={data.metrics.totalContributionsConfirmed}
                     expenses={data.expenses}
+                    projectKind={data.kind}
                     tasks={data.tasks.map((task) => ({
                       id: task.id,
                       title: task.title,
@@ -2322,6 +2366,8 @@ export default function Dashboard() {
                     guestEstimate={data.guestEstimate}
                     favorites={favorites}
                     requests={data.quoteRequests}
+                    venueInquiries={data.venueInquiries}
+                    selectedVenue={data.selectedVenue}
                     onRefresh={() => loadDetail(selected)}
                     onOpenBudget={() => setTab("budget")}
                   />
@@ -2385,7 +2431,7 @@ export default function Dashboard() {
                               maxLength={2000}
                               value={inviteMessage}
                               onChange={(e) => setInviteMessage(e.target.value)}
-                              placeholder={INVITATION_MESSAGE}
+                              placeholder={invitationMessageFor(data?.kind)}
                             />
                           </label>
                         </div>
@@ -2567,6 +2613,7 @@ export default function Dashboard() {
                     </div>
                   </section>
                 )}
+                {tab === "album" && <EventAlbumPanel projectId={selected} />}
                 {tab === "program" && (
                   <div className="program-workspace">
                     <section className="dash-panel wide-panel program-switcher-panel">
@@ -3038,6 +3085,7 @@ export default function Dashboard() {
                             <input type="checkbox" checked={user.emailEventNotifications ?? true} disabled={savingEmailPreferences} onChange={(event) => void updateEmailPreference("emailEventNotifications", event.target.checked)} />
                             <span><strong>Actualizações dos eventos</strong><small>Resumo semanal opcional à parte; esta opção controla os avisos imediatos de RSVP, contribuições e respostas de fornecedores.</small></span>
                           </label>
+                          {user.weeklyDigestEnabled && user.weeklyDigestLastStatus && <div className={`settings-save-state ${user.weeklyDigestLastStatus === "FAILED" ? "error" : "saved"}`} role="status"><p>{user.weeklyDigestLastStatus === "SENT" ? "Último resumo semanal aceite para envio pelo serviço de email." : user.weeklyDigestLastStatus === "FAILED" ? (user.weeklyDigestLastError || "O último envio falhou.") : user.weeklyDigestLastStatus === "SENDING" ? "A preparar o resumo semanal…" : "Ainda não há actividade suficiente para enviar um resumo."}{user.weeklyDigestLastAttemptAt ? ` Tentativa: ${new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short" }).format(new Date(user.weeklyDigestLastAttemptAt))}.` : ""}</p>{user.weeklyDigestLastStatus === "FAILED" && <button className="button button-outline compact" type="button" disabled={savingEmailPreferences} onClick={() => void retryWeeklyDigest()}>{savingEmailPreferences ? "A tentar…" : "Tentar enviar novamente"}</button>}</div>}
                           <label className="email-preference-option">
                             <input type="checkbox" checked={user.weeklyDigestEnabled ?? false} disabled={savingEmailPreferences} onChange={(event) => void updateEmailPreference("weeklyDigestEnabled", event.target.checked)} />
                             <span><strong>Resumo semanal</strong><small>Prazos próximos, confirmações RSVP e actividade recente dos teus eventos. Começa a chegar uma semana depois de activares.</small></span>

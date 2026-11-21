@@ -4,6 +4,7 @@
 
 - Monorepo npm workspaces com Turborepo, Next.js, NestJS, PostgreSQL e Prisma.
 - Projectos de evento com tipo Casamento, Alambamento, Festa ou Outro. Os modelos Prisma chamam-se `EventProject`, `ProjectMember` e `EventMoment`; as tabelas existentes são preservadas por mapeamento e as rotas antigas `/weddings` continuam como alias de compatibilidade.
+- Cada tipo de evento recebe tarefas, categorias iniciais do orçamento, sequência sugerida do programa e texto de convite adequado; o fluxo deixa de iniciar com um roteiro exclusivamente de casamento.
 - Onboarding com tipo, província, data, orçamento e estimativa de participantes; o projecto cria um roteiro de tarefas adequado ao tipo escolhido.
 - Os roteiros iniciais de casamento, alambamento, festa e outros eventos têm tarefas e categorias próprias, para que a primeira visita comece com passos mais relevantes.
 - Gestão “Os meus eventos” com cartões que identificam tipo, nome, data, província, participantes e limite; permite mudar de projecto e marcar o activo.
@@ -21,11 +22,14 @@
 - Programa com data, hora e local; os momentos podem ser editados ou removidos.
 - Lista de convidados com grupos, limite de acompanhantes por convite, RSVP e atribuição a mesas. A capacidade considera acompanhantes confirmados e lugares previstos para convites sem resposta.
 - Convite público personalizável com editor e pré-visualização ao vivo, três estilos guardados, estado de publicação, partilha geral e acesso directo aos links individuais de RSVP. QR Codes gerais e individuais são gerados localmente.
+- Convites por email registam tentativa, estado e falha sem guardar mensagens técnicas sensíveis; a lista permite repetir o envio. O resumo semanal inclui tarefas, RSVP pendentes, vencimentos, contribuições e pedidos de fornecedor, mostra o último estado e permite repetir o envio após falha.
+- Álbum opcional do evento com link e QR, envio de fotografias sem conta, redimensionamento, limite de formato/tamanho e aprovação dos anfitriões antes da publicação. O álbum é desactivado por padrão, o link pode ser revogado e o volume privado precisa de backup próprio.
 - Programa separado entre sequência dos momentos e prazos de preparação; momentos são ordenados por horário, prazos concluídos saem da lista pendente e atrasos ficam destacados.
 - Datas e horas do programa e prazos usam o fuso de Luanda ao criar e editar, evitando desvios conforme o fuso do dispositivo.
 - Gestão de convidados com contagem de convites e pessoas previstas/confirmadas, pesquisa e filtros por RSVP, grupo e mesa, edição directa, importação CSV com deduplicação até 500 registos e exportação CSV.
 - Ocupação visual das mesas com lugares disponíveis e aviso de excesso; confirmações contam pessoas reais, respostas pendentes reservam o limite do convite e recusas libertam lugares.
 - Pesquisa de fornecedores, favoritos e pedidos de informação no projecto. Para perfis activos associados a uma conta, os pedidos aparecem na caixa de entrada do fornecedor e as respostas notificam os membros do evento; outros perfis continuam com seguimento manual.
+- Pedidos de fornecedores guardam data do evento, participantes e disponibilidade. Espaços ligados a prestadores activos também recebem pedidos de disponibilidade e orçamento; organizador acompanha resposta, disponibilidade e valor no evento e prestador responde pela área de Pedidos.
 - A caixa de entrada do fornecedor acompanha quais pedidos ainda não foram vistos, permite marcá-los como vistos e evita contar pedidos antigos como novos após a activação deste indicador.
 - Espaço de fornecedores por evento com favoritos comparáveis por categoria, localização e faixa de preço; o contexto acompanha a navegação do dashboard ao directório e ao perfil.
 - Formulário público de candidatura de fornecedores, com registo na base de dados, validação, fila administrativa e conversão para perfil pendente de aprovação.
@@ -51,7 +55,8 @@
 - Assistente civil com fontes e estados de verificação. A orientação permanece informativa e requer confirmação oficial.
 - Limites de tentativas de login, registo, candidaturas e RSVP persistidos no PostgreSQL e partilhados entre instâncias; encaminhamento de IP por proxy exige configuração explícita.
 - DTOs de actualização administrativa de guias, conservatórias e candidaturas validados em runtime.
-- Script de backup PostgreSQL e lista de preparação para produção documentados; ainda dependem de agendamento, armazenamento seguro e teste de recuperação no ambiente de alojamento.
+- Scripts de backup PostgreSQL e dos volumes do Coolify validam e cifram os arquivos, enviam-nos para um destino remoto `rclone` e permitem ensaios de restauro isolados. A operação em produção ainda depende de agendamento e credenciais no host.
+- Rascunhos de despesas, convidados e documentos são recuperáveis no mesmo navegador durante 24 horas; os ficheiros de documentos não são guardados no armazenamento local do navegador.
 - Migrações aplicadas para tipo de projecto, limite de acompanhantes e estilos dos convites. Dados existentes continuam nas tabelas e são classificados por momentos já guardados.
 - Migrações de cifragem dos tokens RSVP e caixa de entrada/notificações de fornecedores aplicadas à base PostgreSQL local.
 
@@ -69,12 +74,14 @@
 - `npm test --workspace=@casar/api` passou com 15 testes, incluindo protecção dos responsáveis, RSVP, capacidade das mesas, importação CSV, tema do convite, DTOs e rate limit.
 - `NEXT_DIST_DIR=.next-review npm run build --workspace=@casar/web` passou. O build isolado evita colidir com uma instância local que use `.next`.
 - Em execução local, `/app` respondeu HTTP 200 e `/api/v1/health` reportou PostgreSQL ligado.
+- Prisma validate, typecheck e builds de produção da API e Web passaram após os fluxos de disponibilidade, álbum, lembretes e rascunhos; os scripts de backup passaram `bash -n`.
 
 ## Ainda por ligar antes de produção
 
 - Piloto com fornecedores reais: a caixa de entrada e notificações funcionam para perfis activos associados a uma conta, mas a plataforma ainda não tem fornecedores reais confirmados nem canal externo de email/WhatsApp.
 - Em produção, configurar `PORTFOLIO_STORAGE_DIR` para um volume persistente com backup. O armazenamento local já funciona no desenvolvimento, mas um disco efémero de contentor não é adequado para publicação.
 - Emails transaccionais por Resend já estão implementados, incluindo convites e recuperação de palavra-passe; ficam desligados por padrão e exigem `RESEND_ENABLED=true`, credenciais e domínio de envio configurados. Envio por WhatsApp e acompanhamento de entrega fora do email continuam por implementar.
-- Pagamentos, check-in QR e disponibilidade de espaços continuam por implementar.
-- Testes de browser ponta a ponta, activação do pipeline CI no repositório remoto, monitorização externa, agendamento e recuperação testada de backups, política de privacidade/termos e revisão editorial contínua da informação civil.
+- Reservas, pagamentos e disponibilidade sincronizada dos espaços continuam por implementar; o fluxo actual regista pedidos, respostas e estados, sem confirmar reservas.
+- Agendar backups no host Coolify, configurar `age`/`rclone`, fazer restauro periódico de base e volumes de teste, activar monitorização externa, rever termos e privacidade e manter a revisão editorial das fontes civis.
+- Testes de browser ponta a ponta e activação do pipeline CI no repositório remoto continuam pendentes.
 - Substituição da fotografia de referência por activos licenciados adequados também a alambamentos e festas.
