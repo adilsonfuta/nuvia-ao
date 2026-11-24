@@ -6,19 +6,19 @@ import { api } from "../lib/api";
 import { formatAOA } from "../lib/format";
 import { ListPagination } from "../lib/list-pagination";
 
-type Venue = { id: string; slug: string; name: string; venueType: string; description: string | null; province: string | null; municipality: string | null; address: string | null; mapsUrl: string | null; latitude: number | null; longitude: number | null; capacityMin: number | null; capacityMax: number | null; priceFrom: number | string | null; priceTo: number | string | null; galleryUrls: string[]; phone: string | null; email: string | null; websiteUrl: string | null; amenities: string[]; eventTypes: string[]; verifiedAt: string | null; isDemo: boolean };
-type VenueList = { items: Venue[]; total: number; status: string; page: number; pageSize: number; totalPages: number };
+export type VenueDirectoryItem = { id: string; slug: string; name: string; venueType: string; description: string | null; province: string | null; municipality: string | null; address: string | null; mapsUrl: string | null; latitude: number | null; longitude: number | null; capacityMin: number | null; capacityMax: number | null; priceFrom: number | string | null; priceTo: number | string | null; galleryUrls: string[]; phone: string | null; email: string | null; websiteUrl: string | null; amenities: string[]; eventTypes: string[]; verifiedAt: string | null; isDemo: boolean };
+export type VenueDirectoryData = { items: VenueDirectoryItem[]; total: number; status: string; page: number; pageSize: number; totalPages: number };
 const provinces = ["Bengo", "Benguela", "Bié", "Cabinda", "Cuando", "Cubango", "Cuanza Norte", "Cuanza Sul", "Cunene", "Huambo", "Huíla", "Icolo e Bengo", "Luanda", "Lunda Norte", "Lunda Sul", "Malanje", "Moxico", "Moxico Leste", "Namibe", "Uíge", "Zaire"];
 
-export default function VenueDirectory() {
-  const [data, setData] = useState<VenueList | null>(null);
+export default function VenueDirectory({ initialData }: { initialData?: VenueDirectoryData }) {
+  const [data, setData] = useState<VenueDirectoryData | null>(initialData ?? null);
   const [search, setSearch] = useState("");
   const [province, setProvince] = useState("");
   const [venueType, setVenueType] = useState("");
   const [capacity, setCapacity] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState("");
 
   async function load(filters: { search: string; province: string; venueType: string; capacity: string }, nextPage = page, nextPageSize = pageSize) {
@@ -29,7 +29,7 @@ export default function VenueDirectory() {
     if (filters.venueType) params.set("type", filters.venueType);
     if (filters.capacity) params.set("capacity", filters.capacity);
     params.set("page", String(nextPage)); params.set("pageSize", String(nextPageSize));
-    try { setData(await api<VenueList>(`/venues?${params.toString()}`)); }
+    try { setData(await api<VenueDirectoryData>(`/venues?${params.toString()}`)); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar os espaços."); }
     finally { setLoading(false); }
   }
@@ -38,7 +38,7 @@ export default function VenueDirectory() {
     const params = new URLSearchParams(window.location.search);
     const filters = { search: params.get("q") ?? "", province: params.get("province") ?? "", venueType: params.get("type") ?? "", capacity: params.get("capacity") ?? "" };
     setSearch(filters.search); setProvince(filters.province); setVenueType(filters.venueType); setCapacity(filters.capacity);
-    setPage(1); void load(filters, 1);
+    setPage(1); if (!initialData || filters.search || filters.province || filters.venueType || filters.capacity) void load(filters, 1);
   }, []);
 
   function submit(event: FormEvent) {

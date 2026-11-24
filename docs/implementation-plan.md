@@ -15,7 +15,7 @@
 ## Próximas prioridades
 
 1. Activar e verificar o pipeline CI e ampliar testes de integração para fluxos completos no browser.
-2. Configurar email transaccional para recuperação de conta, após aprovação e configuração explícita do serviço e domínio de envio.
+2. Acompanhar entrega e rejeições de emails no Resend e garantir que as confirmações RSVP e os respectivos reenvios funcionam no ambiente publicado.
 3. Fazer piloto com fornecedores reais: os perfis demonstrativos não representam negócios, e o encaminhamento só funciona para perfis activos associados a uma conta responsável.
 4. Configurar monitorização externa, backups agendados e recuperação ensaiada no alojamento de produção.
 5. Rever termos, privacidade, retenção de dados e fontes oficiais de informação civil antes do lançamento público.
@@ -26,4 +26,4 @@
 - Estados de erro, recuperação e carregamento em nível de rota, além de páginas claras para endereços inexistentes.
 - Testes automatizados da formatação de valores/datas e dos fluxos de token RSVP e resposta de fornecedor.
 - Workflow CI com typecheck, testes e build; `NEXT_PUBLIC_SITE_URL` permite gerar metadados e sitemap com o domínio público correcto.
-- Recuperação de palavra-passe continua sem envio de email configurado. O endpoint não deve ser apresentado como funcional até existir um serviço de envio aprovado e operacional.
+- Emails transaccionais são enviados pelo Resend quando `RESEND_ENABLED=true` e as credenciais estão configuradas; recuperação e confirmação de conta ficam indisponíveis por email quando o serviço está desligado.

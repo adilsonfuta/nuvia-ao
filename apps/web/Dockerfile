@@ -3,10 +3,14 @@ WORKDIR /app
 COPY . .
 RUN npm ci
 ARG API_INTERNAL_URL=http://api:4000/api/v1
+ARG NEXT_PUBLIC_SITE_URL=https://nuvia.sirius.ao
+ARG GOOGLE_SITE_VERIFICATION=
 ENV NODE_ENV=production \
     DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build?schema=public" \
     API_INTERNAL_URL=${API_INTERNAL_URL} \
-    NEXT_PUBLIC_API_URL=/api/v1
+    NEXT_PUBLIC_API_URL=/api/v1 \
+    NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL} \
+    GOOGLE_SITE_VERIFICATION=${GOOGLE_SITE_VERIFICATION}
 RUN npx prisma generate --schema packages/database/prisma/schema.prisma
 RUN npm run build --workspace=@casar/web
 

@@ -23,6 +23,7 @@
 - Lista de convidados com grupos, limite de acompanhantes por convite, RSVP e atribuição a mesas. A capacidade considera acompanhantes confirmados e lugares previstos para convites sem resposta.
 - Convite público personalizável com editor e pré-visualização ao vivo, três estilos guardados, estado de publicação, partilha geral e acesso directo aos links individuais de RSVP. QR Codes gerais e individuais são gerados localmente.
 - Convites por email registam tentativa, estado e falha sem guardar mensagens técnicas sensíveis; a lista permite repetir o envio. O resumo semanal inclui tarefas, RSVP pendentes, vencimentos, contribuições e pedidos de fornecedor, mostra o último estado e permite repetir o envio após falha.
+- Respostas RSVP enviam uma confirmação ao email associado ao convidado, guardam o resultado da tentativa e permitem reenvio limitado a partir do convite individual.
 - Álbum opcional do evento com link e QR, envio de fotografias sem conta, redimensionamento, limite de formato/tamanho e aprovação dos anfitriões antes da publicação. O álbum é desactivado por padrão, o link pode ser revogado e o volume privado precisa de backup próprio.
 - Programa separado entre sequência dos momentos e prazos de preparação; momentos são ordenados por horário, prazos concluídos saem da lista pendente e atrasos ficam destacados.
 - Datas e horas do programa e prazos usam o fuso de Luanda ao criar e editar, evitando desvios conforme o fuso do dispositivo.
@@ -46,7 +47,7 @@
 - Imagens e alterações de perfil ficam pendentes até revisão; apenas conteúdo aprovado aparece publicamente. O perfil explica que revisão não garante disponibilidade nem execução do serviço.
 - Pedidos de informação com estados manuais (guardado, enviado por outro canal, resposta recebida, contratado e fechado), notas e valor recebido; perfis demonstrativos são claramente identificados.
 - Ao marcar um fornecedor como contratado, cria-se uma despesa comprometida no orçamento com prazo opcional e ligação ao pedido. Remover essa despesa reabre o pedido para resposta, evitando um estado de contratação sem registo financeiro.
-- Colaboração por contas existentes, com permissões de edição ou consulta, gestão de nível e remoção de acessos visíveis apenas para responsáveis. O acesso é concedido imediatamente; não há envio de email.
+- Colaboração por contas existentes, com permissões de edição ou consulta, gestão de nível e remoção de acessos visíveis apenas para responsáveis. O acesso é concedido imediatamente; a API tenta notificar por email, mostra o resultado e permite repetir o envio quando falha.
 - Relatórios com saldo versus limite, despesas por categoria e estado, contagem separada de pessoas e convites, e atalhos para tarefas atrasadas e pagamentos por fazer.
 - Contribuições de convidados sem conta por link aleatório e revogável. Registo pode incluir nome ou anonimato, valor, método, mensagem, comprovativo privado e despesa apoiada; gestão do evento tem estados por confirmar/confirmada/recusada, paginação, totais que contam apenas validações e progresso agregado opcional. O registo não processa pagamentos.
 - Definições separadas entre dados do evento e segurança/privacidade da conta, com aviso de alterações por guardar e bloqueio de submissões repetidas.
