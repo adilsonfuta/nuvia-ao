@@ -32,7 +32,7 @@ import { EventAlbumPanel } from "./event-album-panel";
 import { ListPagination, PaginatedList, slicePage, useListPage } from "../lib/list-pagination";
 import type { ProjectKind, ProjectSummary } from "@casar/contracts";
 
-type User = { id: string; email: string; name: string | null; role?: "USER" | "SUPPORT" | "MODERATOR" | "ADMIN"; emailEventNotifications?: boolean; weeklyDigestEnabled?: boolean; weeklyDigestLastStatus?: "SENDING" | "SENT" | "FAILED" | "SKIPPED" | null; weeklyDigestLastError?: string | null; weeklyDigestLastAttemptAt?: string | null };
+type User = { id: string; email: string; emailVerifiedAt: string | null; name: string | null; role?: "USER" | "SUPPORT" | "MODERATOR" | "ADMIN"; emailEventNotifications?: boolean; weeklyDigestEnabled?: boolean; weeklyDigestLastStatus?: "SENDING" | "SENT" | "FAILED" | "SKIPPED" | null; weeklyDigestLastError?: string | null; weeklyDigestLastAttemptAt?: string | null };
 type Project = ProjectSummary & {
   budgetLimit: number | string | null;
   guestEstimate: number | null;
@@ -357,6 +357,10 @@ export default function Dashboard() {
     "event",
   );
   const [savingEmailPreferences, setSavingEmailPreferences] = useState(false);
+  const [sendingEmailVerification, setSendingEmailVerification] = useState(false);
+  const [emailVerificationNotice, setEmailVerificationNotice] = useState("");
+  const [emailVerificationError, setEmailVerificationError] = useState("");
+  const [emailVerificationDevUrl, setEmailVerificationDevUrl] = useState("");
   const [newEmailAddress, setNewEmailAddress] = useState("");
   const [emailChangePassword, setEmailChangePassword] = useState("");
   const [requestingEmailChange, setRequestingEmailChange] = useState(false);
@@ -1219,6 +1223,23 @@ export default function Dashboard() {
       setSavingEmailPreferences(false);
     }
   }
+  async function resendEmailVerification() {
+    if (!user || sendingEmailVerification) return;
+    setSendingEmailVerification(true);
+    setEmailVerificationError("");
+    setEmailVerificationNotice("");
+    setEmailVerificationDevUrl("");
+    try {
+      const result = await api<{ verified: boolean; message: string; devVerificationUrl?: string }>("/auth/email-verification/resend", { method: "POST" });
+      setEmailVerificationNotice(result.message);
+      setEmailVerificationDevUrl(result.devVerificationUrl ?? "");
+      if (result.verified) setUser((current) => current ? { ...current, emailVerifiedAt: new Date().toISOString() } : current);
+    } catch (cause) {
+      setEmailVerificationError(cause instanceof Error ? cause.message : "Não foi possível reenviar o link de confirmação.");
+    } finally {
+      setSendingEmailVerification(false);
+    }
+  }
   async function retryWeeklyDigest() {
     if (!user || savingEmailPreferences) return;
     setSavingEmailPreferences(true);
@@ -1574,6 +1595,20 @@ export default function Dashboard() {
             {notice}
             <button onClick={() => setNotice("")}>×</button>
           </div>
+        )}
+        {!user.emailVerifiedAt && (
+          <section className="email-verification-banner" aria-label="Confirmação do endereço de email">
+            <div>
+              <strong>Confirma o teu email</strong>
+              <p>O endereço <b>{user.email}</b> aguarda confirmação. Confirma-o para garantir que recebes avisos e recuperas a conta se necessário. Se o email não chegar, podes reenviar o link.</p>
+              {emailVerificationNotice && <small role="status">{emailVerificationNotice}</small>}
+              {emailVerificationError && <small className="is-error" role="alert">{emailVerificationError}</small>}
+              {emailVerificationDevUrl && <a href={emailVerificationDevUrl}>Abrir link de confirmação (desenvolvimento)</a>}
+            </div>
+            <button className="button button-outline compact" type="button" disabled={sendingEmailVerification} onClick={() => void resendEmailVerification()}>
+              {sendingEmailVerification ? "A enviar…" : "Reenviar link"}
+            </button>
+          </section>
         )}
         {!data ? (
           tab === "events" && projects.length > 0 ? (

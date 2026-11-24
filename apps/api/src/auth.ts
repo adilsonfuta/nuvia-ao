@@ -20,6 +20,7 @@ export class DeleteAccountDto { @IsString() @MinLength(8) @MaxLength(128) passwo
 export class PasswordResetRequestDto { @IsEmail() @MaxLength(180) email!: string }
 export class EmailChangeRequestDto { @IsEmail() @MaxLength(180) newEmail!: string; @IsString() @MinLength(8) @MaxLength(128) currentPassword!: string }
 export class EmailChangeConfirmationDto { @IsString() @MinLength(32) @MaxLength(128) token!: string }
+export class EmailVerificationConfirmationDto { @IsString() @MinLength(32) @MaxLength(128) token!: string }
 export class EmailPreferencesDto {
   @IsOptional() @IsBoolean() emailEventNotifications?: boolean;
   @IsOptional() @IsBoolean() weeklyDigestEnabled?: boolean;
@@ -109,10 +110,71 @@ export class AuthController {
     assertPasswordFitsBcrypt(body.password);
     const email = body.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where: { email } })) throw new ConflictException('Este email já tem uma conta.');
-    const user = await this.db.user.create({ data: { email, name: body.name.trim(), passwordHash: await hash(body.password, 12) }, select: { id: true, email: true, name: true } });
+    const user = await this.db.user.create({ data: { email, name: body.name.trim(), passwordHash: await hash(body.password, 12) }, select: { id: true, email: true, name: true, emailVerifiedAt: true } });
     const session = await this.issue(user, response, loginAgentHash(request));
-    void this.email.sendWelcome(user.email, user.name, `${webOrigin()}/dashboard`, user.id);
-    return session;
+    const token = randomBytes(32).toString('base64url');
+    const record = await this.db.emailVerificationToken.create({
+      data: { userId: user.id, tokenHash: tokenHash(token), expiresAt: new Date(Date.now() + 24 * 60 * 60_000) },
+      select: { id: true },
+    });
+    const verificationUrl = `${webOrigin()}/confirmar-conta?token=${encodeURIComponent(token)}`;
+    const emailSent = await this.email.sendWelcomeVerification(user.email, user.name, verificationUrl, record.id);
+    if (!emailSent && process.env.NODE_ENV === 'production') {
+      await this.db.emailVerificationToken.deleteMany({ where: { id: record.id } });
+    }
+    return {
+      ...session,
+      emailVerificationEmailSent: emailSent,
+      ...(!emailSent && process.env.NODE_ENV !== 'production' ? { devVerificationUrl: verificationUrl } : {}),
+    };
+  }
+
+  @Post('email-verification/resend') @UseGuards(SessionGuard)
+  async resendEmailVerification(@CurrentUser() user: SessionUser) {
+    if (process.env.NODE_ENV === 'production' && !this.email.isConfigured) {
+      throw new ServiceUnavailableException('A confirmação por email não está configurada neste momento. Contacta o suporte.');
+    }
+    const account = await this.db.user.findUnique({ where: { id: user.id }, select: { id: true, email: true, name: true, emailVerifiedAt: true } });
+    if (!account) throw new UnauthorizedException();
+    if (account.emailVerifiedAt) return { verified: true, emailSent: false, message: 'Este endereço de email já está confirmado.' };
+
+    const token = randomBytes(32).toString('base64url');
+    await this.db.emailVerificationToken.deleteMany({ where: { userId: account.id } });
+    const record = await this.db.emailVerificationToken.create({
+      data: { userId: account.id, tokenHash: tokenHash(token), expiresAt: new Date(Date.now() + 24 * 60 * 60_000) },
+      select: { id: true },
+    });
+    const verificationUrl = `${webOrigin()}/confirmar-conta?token=${encodeURIComponent(token)}`;
+    const emailSent = await this.email.sendEmailVerification(account.email, account.name, verificationUrl, record.id);
+    if (!emailSent && process.env.NODE_ENV === 'production') {
+      await this.db.emailVerificationToken.deleteMany({ where: { id: record.id } });
+    }
+    return {
+      verified: false,
+      emailSent,
+      message: emailSent ? 'Enviámos um novo link de confirmação. Verifica a tua caixa de entrada.' : 'Não foi possível enviar o email agora. Tenta novamente mais tarde.',
+      ...(!emailSent && process.env.NODE_ENV !== 'production' ? { devVerificationUrl: verificationUrl } : {}),
+    };
+  }
+
+  @Post('email-verification/confirm')
+  async confirmEmailVerification(@Body() body: EmailVerificationConfirmationDto) {
+    const now = new Date();
+    const email = await this.db.$transaction(async (tx) => {
+      const record = await tx.emailVerificationToken.findUnique({ where: { tokenHash: tokenHash(body.token) } });
+      if (!record || record.usedAt || record.expiresAt <= now) {
+        throw new BadRequestException('Este link já não é válido. Pede um novo email de confirmação na dashboard.');
+      }
+      const consumed = await tx.emailVerificationToken.updateMany({
+        where: { id: record.id, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      if (consumed.count !== 1) throw new BadRequestException('Este link já foi utilizado.');
+      const account = await tx.user.update({ where: { id: record.userId }, data: { emailVerifiedAt: now }, select: { email: true } });
+      await tx.emailVerificationToken.deleteMany({ where: { userId: record.userId, id: { not: record.id } } });
+      return account.email;
+    });
+    return { message: `Email ${email} confirmado com sucesso.` };
   }
 
   @Post('login')
@@ -213,9 +275,10 @@ export class AuthController {
       if (await tx.user.findUnique({ where: { email: record.newEmail }, select: { id: true } })) throw new ConflictException('Este email já está associado a outra conta.');
       const consumed = await tx.emailChangeToken.updateMany({ where: { id: record.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
       if (consumed.count !== 1) throw new BadRequestException('Este link já foi utilizado.');
-      const updated = await tx.user.update({ where: { id: record.userId }, data: { email: record.newEmail }, select: { id: true, email: true, name: true } });
+      const updated = await tx.user.update({ where: { id: record.userId }, data: { email: record.newEmail, emailVerifiedAt: now }, select: { id: true, email: true, name: true } });
       await tx.session.deleteMany({ where: { userId: record.userId } });
       await tx.emailChangeToken.deleteMany({ where: { userId: record.userId, id: { not: record.id } } });
+      await tx.emailVerificationToken.deleteMany({ where: { userId: record.userId } });
       return { previousEmail: record.user.email, updated };
     });
     void this.email.sendEmailChanged(reset.previousEmail, reset.updated.name, reset.updated.email, `old/${reset.updated.id}/${now.getTime()}`);
@@ -235,7 +298,7 @@ export class AuthController {
   async me(@CurrentUser() user: SessionUser) {
     const account = await this.db.user.findUnique({
       where: { id: user.id },
-      select: { id: true, email: true, name: true, role: true, emailEventNotifications: true, weeklyDigestEnabled: true, weeklyDigestLastStatus: true, weeklyDigestLastError: true, weeklyDigestLastAttemptAt: true },
+      select: { id: true, email: true, emailVerifiedAt: true, name: true, role: true, emailEventNotifications: true, weeklyDigestEnabled: true, weeklyDigestLastStatus: true, weeklyDigestLastError: true, weeklyDigestLastAttemptAt: true },
     });
     if (!account) throw new UnauthorizedException('A sessão já não está associada a uma conta activa.');
     return { user: account };
