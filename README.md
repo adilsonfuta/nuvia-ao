@@ -30,6 +30,8 @@ npm run db:seed --workspace=@casar/api
 
 Para criar o administrador inicial, define `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD` no ambiente da API antes de a iniciar. A conta é criada automaticamente no arranque; não é necessário executar um script. Usa uma palavra-passe com pelo menos 12 caracteres. O seed de demonstração serve apenas para carregar conteúdos fictícios.
 
+Novas contas recebem um email de boas-vindas com um link de confirmação válido por 24 horas e de utilização única. A confirmação não bloqueia o acesso à dashboard; o utilizador pode reenviar o link enquanto o endereço estiver pendente.
+
 ## Deploy no Coolify
 
 Usa a raiz do repositório e `docker-compose.coolify.yml` como ficheiro Compose. Publica o serviço `web` na porta 3000; a API e o PostgreSQL permanecem na rede privada do Compose. Configura as variáveis descritas em [docs/deploy-coolify.md](docs/deploy-coolify.md), incluindo as chaves de cifragem e o domínio HTTPS.

@@ -39,12 +39,23 @@ export const passwordResetEmail = (name: string | null, url: string) => brandedE
 });
 
 export const welcomeEmail = (name: string | null, url: string) => brandedEmail({
-  preheader: "A tua conta Nuvia está pronta. Começa a organizar o teu evento.",
+  preheader: "Confirma o teu email e começa a organizar o teu evento na Nuvia.",
   title: "Bem-vindo à Nuvia",
   greeting: name || undefined,
-  paragraphs: ["A tua conta está pronta. Podes organizar um casamento, alambamento, festa ou outra celebração num só lugar.", "Cria o teu primeiro evento e convida as pessoas que vão ajudar nos preparativos."],
-  actionLabel: "Abrir a minha dashboard",
+  paragraphs: ["A tua conta está pronta. Confirma este endereço de email para garantirmos que conseguimos enviar-te informações importantes sobre a tua conta e os teus eventos.", "Depois, podes organizar um casamento, alambamento, festa ou outra celebração num só lugar. Este link é válido durante 24 horas e só pode ser utilizado uma vez."],
+  actionLabel: "Confirmar email",
   actionUrl: url,
+  note: "Se não criaste uma conta na Nuvia, podes ignorar esta mensagem.",
+});
+
+export const emailVerificationEmail = (name: string | null, url: string) => brandedEmail({
+  preheader: "Confirma o endereço de email associado à tua conta Nuvia.",
+  title: "Confirma o teu email",
+  greeting: name || undefined,
+  paragraphs: ["Pediste um novo link para confirmar o endereço de email da tua conta Nuvia.", "O link é válido durante 24 horas e só pode ser utilizado uma vez."],
+  actionLabel: "Confirmar email",
+  actionUrl: url,
+  note: "Se não pediste este link, podes ignorar esta mensagem.",
 });
 
 export const projectSharedEmail = (input: { recipient: string | null; inviter: string; project: string; role: string; url: string }) => brandedEmail({

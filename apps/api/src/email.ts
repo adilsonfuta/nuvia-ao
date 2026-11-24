@@ -5,6 +5,7 @@ import {
   accountSecurityEmail,
   contributionNoticeEmail,
   emailChangeVerificationEmail,
+  emailVerificationEmail,
   eventUpdateEmail,
   guestInvitationEmail,
   passwordResetEmail,
@@ -70,8 +71,12 @@ export class EmailService {
     return results.filter(Boolean).length;
   }
 
-  sendWelcome(to: string, name: string | null, url: string, userId: string) {
-    return this.send(to, { subject: "Bem-vindo à Nuvia", ...welcomeEmail(name, url) }, `welcome/${userId}`);
+  sendWelcomeVerification(to: string, name: string | null, url: string, tokenId: string) {
+    return this.send(to, { subject: "Bem-vindo à Nuvia — confirma o teu email", ...welcomeEmail(name, url) }, `welcome-verification/${tokenId}`);
+  }
+
+  sendEmailVerification(to: string, name: string | null, url: string, tokenId: string) {
+    return this.send(to, { subject: "Confirma o teu email da Nuvia", ...emailVerificationEmail(name, url) }, `email-verification/${tokenId}`);
   }
 
   sendPasswordReset(to: string, name: string | null, url: string, tokenId: string) {
