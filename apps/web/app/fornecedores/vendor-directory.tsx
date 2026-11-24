@@ -5,19 +5,20 @@ import { api } from '../lib/api';
 import { formatAOA } from '../lib/format';
 import { ListPagination } from '../lib/list-pagination';
 
-type Vendor = { id: string; slug: string; name: string; category: string; description: string | null; galleryUrls: string[]; portfolio: { id: string; altText: string; isCover: boolean }[]; province: string | null; municipality: string | null; priceFrom: string | null; priceTo: string | null; verifiedAt: string | null; isDemo: boolean };
+export type VendorDirectoryItem = { id: string; slug: string; name: string; category: string; description: string | null; galleryUrls: string[]; portfolio: { id: string; altText: string; isCover: boolean }[]; province: string | null; municipality: string | null; priceFrom: string | null; priceTo: string | null; verifiedAt: string | null; isDemo: boolean };
+export type VendorDirectoryData = { items: VendorDirectoryItem[]; total: number; page: number; pageSize: number; totalPages: number };
 const defaultCategories = ['Catering', 'Decoração', 'Fotografia e vídeo', 'Música e DJ', 'Beleza', 'Transportes', 'Bolos e doces', 'Organização', 'Espaços'];
 const defaultProvinces = ['Bengo', 'Benguela', 'Bié', 'Cabinda', 'Cuando', 'Cubango', 'Cuanza Norte', 'Cuanza Sul', 'Cunene', 'Huambo', 'Huíla', 'Icolo e Bengo', 'Luanda', 'Lunda Norte', 'Lunda Sul', 'Malanje', 'Moxico', 'Moxico Leste', 'Namibe', 'Uíge', 'Zaire'];
 
-export default function VendorDirectory() {
-  const [vendors, setVendors] = useState<Vendor[]>([]);
+export default function VendorDirectory({ initialData }: { initialData?: VendorDirectoryData }) {
+  const [vendors, setVendors] = useState<VendorDirectoryItem[]>(initialData?.items ?? []);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [total, setTotal] = useState(0);
+  const [total, setTotal] = useState(initialData?.total ?? 0);
   const [term, setTerm] = useState('');
   const [category, setCategory] = useState('');
   const [province, setProvince] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState('');
   const [favoriteNotice, setFavoriteNotice] = useState('');
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
@@ -36,7 +37,7 @@ export default function VendorDirectory() {
       if (values.category) params.set('category', values.category);
       if (values.province) params.set('province', values.province);
       params.set('page', String(nextPage)); params.set('pageSize', String(nextPageSize));
-      const result = await api<{ items: Vendor[]; total: number }>(`/vendors?${params.toString()}`);
+      const result = await api<{ items: VendorDirectoryItem[]; total: number }>(`/vendors?${params.toString()}`);
       setVendors(result.items); setTotal(result.total); setPage(nextPage);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível carregar fornecedores.');
@@ -57,7 +58,7 @@ export default function VendorDirectory() {
     setCategory(initial.category);
     setProvince(initial.province);
     setProjectId(context);
-      void runSearch(initial, 1);
+      if (!initialData || initial.term || initial.category || initial.province) void runSearch(initial, 1);
     void api<{vendorCategories:string[];provinces:string[]}>('/catalog-config').then(config => { if(config.vendorCategories.length)setCategories(config.vendorCategories); if(config.provinces.length)setProvinces(config.provinces); }).catch(()=>undefined);
     void (async () => {
       try {

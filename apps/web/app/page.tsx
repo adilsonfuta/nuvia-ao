@@ -1,4 +1,11 @@
 import Image from 'next/image';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Planeamento de casamentos, alambamentos e festas em Angola',
+  description: 'Organiza o teu casamento, alambamento, festa ou outra celebração em Angola. Planeia tarefas, orçamento, convidados e encontra espaços e fornecedores.',
+  alternates: { canonical: '/' },
+};
 
 const features = [
   { icon: '▤', title: 'Um primeiro roteiro', text: 'Responde a algumas perguntas e recebe uma lista inicial de próximos passos.', href: '/planear', action: 'Criar roteiro' },

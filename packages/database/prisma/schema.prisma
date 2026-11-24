@@ -628,17 +628,21 @@ model Invitation {
 }
 
 model RSVP {
-  id        String             @id @default(cuid())
-  guestId   String
-  eventId   String?
-  eventKey  String             @default("all")
-  status    RsvpStatus         @default(PENDING)
-  source    RsvpResponseSource @default(PUBLIC_LINK)
-  partySize Int                @default(1)
-  note      String?
-  updatedAt DateTime           @updatedAt
-  guest     Guest              @relation(fields: [guestId], references: [id], onDelete: Cascade)
-  event     EventMoment?       @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  id                           String             @id @default(cuid())
+  guestId                      String
+  eventId                      String?
+  eventKey                     String             @default("all")
+  status                       RsvpStatus         @default(PENDING)
+  source                       RsvpResponseSource @default(PUBLIC_LINK)
+  partySize                    Int                @default(1)
+  note                         String?
+  confirmationEmailStatus      String?
+  confirmationEmailError       String?
+  confirmationEmailAttemptedAt DateTime?
+  confirmationEmailSentAt      DateTime?
+  updatedAt                    DateTime           @updatedAt
+  guest                        Guest              @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  event                        EventMoment?       @relation(fields: [eventId], references: [id], onDelete: SetNull)
 
   @@unique([guestId, eventKey])
   @@index([eventId, status])
