@@ -407,6 +407,7 @@ export default function Dashboard() {
   const [memberEmail, setMemberEmail] = useState("");
   const [memberRole, setMemberRole] = useState("VIEWER");
   const [memberActionId, setMemberActionId] = useState("");
+  const [memberEmailRetryUserId, setMemberEmailRetryUserId] = useState("");
   const [expenseTitle, setExpenseTitle] = useState("");
   const [editingExpenseId, setEditingExpenseId] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("Outros");
@@ -865,17 +866,20 @@ export default function Dashboard() {
     );
     setMemberActionId("new");
     try {
-      await api(`/projects/${selected}/members`, {
+      const result = await api<{ emailAttempted: boolean; emailSent: boolean; user: { id: string } }>(`/projects/${selected}/members`, {
         method: "POST",
         body: JSON.stringify({ email: memberEmail, role: memberRole }),
       });
       setMemberEmail("");
+      setMemberEmailRetryUserId(result.emailAttempted && !result.emailSent ? result.user.id : "");
       await loadDetail(selected);
-      setNotice(
-        isExisting
-          ? "Nível de acesso actualizado."
-          : "Acesso concedido imediatamente. A pessoa pode entrar na própria conta; não foi enviado email.",
-      );
+      setNotice(isExisting
+        ? result.emailAttempted
+          ? result.emailSent ? "Nível de acesso actualizado. Enviámos uma notificação por email." : "Nível de acesso actualizado, mas o email falhou. A pessoa continua a ter acesso e pode entrar na conta."
+          : "O nível de acesso já estava actualizado."
+        : result.emailSent
+          ? "Acesso concedido e notificação enviada por email."
+          : "Acesso concedido. Não foi possível enviar o email; a pessoa já pode entrar na própria conta.");
     } catch (e) {
       setNotice("");
       setError(
@@ -893,14 +897,15 @@ export default function Dashboard() {
   ) {
     setMemberActionId(member.user.id);
     try {
-      await api(`/projects/${selected}/members`, {
+      const result = await api<{ emailAttempted: boolean; emailSent: boolean; user: { id: string } }>(`/projects/${selected}/members`, {
         method: "POST",
         body: JSON.stringify({ email: member.user.email, role }),
       });
       await loadDetail(selected);
-      setNotice(
-        `Acesso de ${member.user.name || member.user.email} actualizado.`,
-      );
+      setMemberEmailRetryUserId(result.emailAttempted && !result.emailSent ? result.user.id : "");
+      setNotice(result.emailSent
+        ? `Acesso de ${member.user.name || member.user.email} actualizado e notificado por email.`
+        : `Acesso de ${member.user.name || member.user.email} actualizado. ${result.emailAttempted ? "O email não foi enviado; a pessoa continua a ter acesso." : "Não foi necessário enviar uma nova notificação."}`);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Não foi possível alterar o acesso.",
@@ -909,16 +914,26 @@ export default function Dashboard() {
       setMemberActionId("");
     }
   }
+  async function retryMemberAccessEmail() {
+    if (!selected || !memberEmailRetryUserId) return;
+    try {
+      const result = await api<{ emailSent: boolean; message: string }>(`/projects/${selected}/members/${memberEmailRetryUserId}/email`, { method: "POST" });
+      setNotice(result.message);
+      if (result.emailSent) setMemberEmailRetryUserId("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível reenviar o email.");
+    }
+  }
   async function removeMember(member: Detail["members"][number]) {
     const label = member.user.name || member.user.email;
     if (!window.confirm(`Remover o acesso de ${label} a este evento?`)) return;
     setMemberActionId(member.user.id);
     try {
-      await api(`/projects/${selected}/members/${member.user.id}`, {
+      const result = await api<{ emailAttempted: boolean; emailSent: boolean }>(`/projects/${selected}/members/${member.user.id}`, {
         method: "DELETE",
       });
       await loadDetail(selected);
-      setNotice(`O acesso de ${label} foi removido.`);
+      setNotice(`O acesso de ${label} foi removido.${result.emailAttempted ? result.emailSent ? " Enviámos uma notificação por email." : " Não foi possível enviar a notificação por email." : ""}`);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Não foi possível remover o acesso.",
@@ -1593,6 +1608,7 @@ export default function Dashboard() {
         {!error && notice && (
           <div className="dashboard-notice" role="status">
             {notice}
+            {memberEmailRetryUserId && <button className="button button-outline compact" type="button" onClick={() => void retryMemberAccessEmail()}>Reenviar email</button>}
             <button onClick={() => setNotice("")}>×</button>
           </div>
         )}
@@ -2112,9 +2128,9 @@ export default function Dashboard() {
                         </form>
                         <small className="private-note">
                           A pessoa tem de ter conta antes de ser adicionada. O
-                          acesso fica activo assim que guardares. A plataforma
-                          não envia email ou convite; avisa a pessoa por outro
-                          canal para entrar.
+                          acesso fica activo assim que guardares. A Nuvia tenta
+                          enviar uma notificação para o email associado à conta;
+                          confirma sempre com a pessoa se recebeu.
                         </small>
                       </div>
                     )}

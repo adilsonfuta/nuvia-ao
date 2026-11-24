@@ -39,6 +39,7 @@ export function createPersistentRateLimit(
     const emailChangeRequest = request.method === "POST" && /^\/api\/v1\/auth\/email-change\/request(?:\?|$)/.test(path);
     const emailVerificationRequest = request.method === "POST" && /^\/api\/v1\/auth\/email-verification\/resend(?:\?|$)/.test(path);
     const guestInclusionRequest = request.method === "POST" && /^\/api\/v1\/invitations\/[^/]+\/requests(?:\?|$)/.test(path);
+    const rsvpEmailResend = request.method === "POST" && /^\/api\/v1\/invitations\/[^/]+\/rsvp\/resend(?:\?|$)/.test(path);
     const albumUpload = request.method === "POST" && /^\/api\/v1\/albums\/[^/]+\/photos(?:\?|$)/.test(path);
     const venueInquiry = request.method === "POST" && /^\/api\/v1\/venues\/[^/]+\/inquiries(?:\?|$)/.test(path);
     const limited =
@@ -57,7 +58,7 @@ export function createPersistentRateLimit(
       contributionRequest ||
       contributionLookup ||
       publicSupportRequest ||
-      /^\/api\/v1\/invitations\/[^/]+\/rsvp/.test(path);
+      /^\/api\/v1\/invitations\/[^/]+\/rsvp(?:\/resend)?(?:\?|$)/.test(path);
     if (!limited) return next();
     void (async () => {
       const now = new Date();
@@ -67,9 +68,11 @@ export function createPersistentRateLimit(
         .replace(/\/invitations\/[^/]+\/requests$/, "/invitations/:slug/requests")
         .replace(/\/albums\/[^/]+\/photos$/, "/albums/:token/photos")
         .replace(/\/venues\/[^/]+\/inquiries$/, "/venues/:venueId/inquiries")
+        .replace(/\/invitations\/[^/]+\/rsvp\/resend$/, "/invitations/:slug/rsvp/resend")
+        .replace(/\/invitations\/[^/]+\/rsvp$/, "/invitations/:slug/rsvp")
         .replace(/\/[^/]+\/rsvp$/, "/:slug/rsvp");
-      const routeMax = guestInclusionRequest ? Math.min(max, 5) : emailChangeRequest ? Math.min(max, 3) : emailVerificationRequest ? 4 : albumUpload ? 8 : venueInquiry ? 5 : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.min(max, 8) : contributionLookup ? Math.max(max, 60) : max;
-      const routeWindowMs = guestInclusionRequest || emailChangeRequest || emailVerificationRequest || albumUpload ? Math.max(windowMs, 60 * 60_000) : venueInquiry ? Math.max(windowMs, 10 * 60_000) : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.max(windowMs, 10 * 60_000) : windowMs;
+      const routeMax = rsvpEmailResend ? 4 : guestInclusionRequest ? Math.min(max, 5) : emailChangeRequest ? Math.min(max, 3) : emailVerificationRequest ? 4 : albumUpload ? 8 : venueInquiry ? 5 : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.min(max, 8) : contributionLookup ? Math.max(max, 60) : max;
+      const routeWindowMs = rsvpEmailResend || guestInclusionRequest || emailChangeRequest || emailVerificationRequest || albumUpload ? Math.max(windowMs, 60 * 60_000) : venueInquiry ? Math.max(windowMs, 10 * 60_000) : uploadRequest || contributionRequest || projectDocumentUpload || publicSupportRequest ? Math.max(windowMs, 10 * 60_000) : windowMs;
       const address = String(
         request.ip ?? request.socket?.remoteAddress ?? "unknown",
       );

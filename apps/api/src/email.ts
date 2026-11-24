@@ -12,6 +12,7 @@ import {
   projectAccessChangedEmail,
   projectAccessRemovedEmail,
   projectSharedEmail,
+  rsvpConfirmationEmail,
   supportReceivedEmail,
   supportResponseEmail,
   vendorRequestEmail,
@@ -114,6 +115,10 @@ export class EmailService {
 
   sendGuestInvitation(input: { to: string; name: string; project: string; date: string; location: string; url: string; key: string }) {
     return this.send(input.to, { subject: `Convite: ${input.project}`, ...guestInvitationEmail(input) }, `guest-invitation/${input.key}`);
+  }
+
+  sendRsvpConfirmation(input: { to: string; name: string; project: string; date: string; status: "ACCEPTED" | "DECLINED"; partySize: number; url: string; key: string }) {
+    return this.send(input.to, { subject: `Resposta registada: ${input.project}`, ...rsvpConfirmationEmail(input) }, `rsvp-confirmation/${input.key}`);
   }
 
   sendEventUpdate(input: { to: string; name: string; project: string; detail: string; url: string; key: string }) {

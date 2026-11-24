@@ -134,6 +134,20 @@ export const guestInvitationEmail = (input: { name: string; project: string; dat
   note: "Este link é pessoal. Não o reencaminhes; fala com a organização se precisares de actualizar os teus dados.",
 });
 
+export const rsvpConfirmationEmail = (input: { name: string; project: string; date: string; status: "ACCEPTED" | "DECLINED"; partySize: number; url: string }) => brandedEmail({
+  preheader: `A tua resposta ao convite de ${input.project} foi registada.`,
+  title: "Resposta registada",
+  greeting: input.name,
+  paragraphs: [
+    `A tua resposta ao convite de “${input.project}” foi registada: ${input.status === "ACCEPTED" ? `vais estar presente${input.partySize > 1 ? ` com mais ${input.partySize - 1} pessoa(s)` : ""}` : "não poderás estar presente"}.`,
+    input.date ? `Data do evento: ${input.date}.` : "",
+    "Se precisares de alterar a resposta, podes voltar a abrir o teu convite individual.",
+  ].filter(Boolean),
+  actionLabel: "Abrir o convite",
+  actionUrl: input.url,
+  note: "Esta mensagem confirma apenas o registo da resposta. Se houver alguma alteração, contacta a organização do evento.",
+});
+
 export const eventUpdateEmail = (input: { name: string; project: string; detail: string; url: string }) => brandedEmail({
   preheader: `Há uma actualização em ${input.project}.`,
   title: "Actualização do evento",

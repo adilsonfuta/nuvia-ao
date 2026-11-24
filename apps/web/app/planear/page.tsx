@@ -1,6 +1,6 @@
 import Planner from './planner';
 
-export const metadata = { title: 'Começar um projecto | Nuvia' };
+export const metadata = { title: 'Começar a organizar um evento em Angola', description: 'Cria um roteiro inicial para o teu casamento, alambamento, festa ou outro evento em Angola.', alternates: { canonical: '/planear' } };
 
 export default function PlanearPage() {
   return <main className="planner-page">
