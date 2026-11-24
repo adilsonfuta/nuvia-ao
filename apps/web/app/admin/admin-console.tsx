@@ -9,6 +9,7 @@ import SupportStaffWorkspace from "../suporte/gestao/support-staff-workspace";
 import AnalyticsPanel from "./analytics-panel";
 import { GUIDE_COVERS } from "../guias/guide-data";
 import { GuidePreview } from "./guide-preview";
+import { BulkCatalogImport, BulkImportEntry, BulkKind } from "./bulk-catalog-import";
 import { extractMapCoordinates, openStreetMapEmbedUrl, openStreetMapUrl } from "../lib/venue-map";
 
 type Vendor = {
@@ -161,6 +162,7 @@ export default function AdminConsole() {
   const [applicationFilter, setApplicationFilter] = useState("OPEN");
   const [selectedVendorId, setSelectedVendorId] = useState("");
   const [showVendorForm, setShowVendorForm] = useState(false);
+  const [showVendorBulkImport, setShowVendorBulkImport] = useState(false);
   const [reasonDecision, setReasonDecision] = useState<{ type: "vendor" | "application"; id: string; label: string; status: "SUSPENDED" | "DECLINED" } | null>(null);
   const [decisionReason, setDecisionReason] = useState("");
   const [savingAction, setSavingAction] = useState(false);
@@ -173,6 +175,7 @@ export default function AdminConsole() {
   const [venueIsDemo, setVenueIsDemo] = useState(false);
   const [editingVenueId, setEditingVenueId] = useState("");
   const [showVenueForm, setShowVenueForm] = useState(false);
+  const [showVenueBulkImport, setShowVenueBulkImport] = useState(false);
   const [venueName, setVenueName] = useState("");
   const [venueSlug, setVenueSlug] = useState("");
   const [venueType, setVenueType] = useState("Quinta");
@@ -559,6 +562,43 @@ export default function AdminConsole() {
       resetVenueForm();
     });
   }
+  async function importCatalog(kind: BulkKind, entries: BulkImportEntry[]) {
+    setSavingAction(true); setError(""); setSuccessNotice("");
+    const photoErrors: string[] = [];
+    let uploadedPhotos = 0;
+    try {
+      const records = entries.map(entry => entry.payload);
+      const created = kind === "vendors"
+        ? await api<{ id: string; galleryUrls?: string[] }[]>("/admin/vendors/import", { method: "POST", body: JSON.stringify({ rows: records }) })
+        : await api<{ id: string; galleryUrls: string[] }[]>("/admin/venues/import", { method: "POST", body: JSON.stringify({ rows: records }) });
+      for (const [index, entry] of entries.entries()) {
+        if (!entry.photos.length) continue;
+        if (kind === "vendors") {
+          for (const photo of entry.photos) {
+            try {
+              const form = new FormData(); form.append("image", photo); form.append("altText", photo.name.replace(/\.[^.]+$/, "").slice(0, 160) || "Trabalho do fornecedor");
+              await api(`/admin/vendors/${created[index].id}/portfolio`, { method: "POST", body: form });
+              uploadedPhotos++;
+            } catch (cause) { photoErrors.push(`Linha ${entry.rowNumber}, ${photo.name}: ${cause instanceof Error ? cause.message : "falha no envio"}`); }
+          }
+        } else {
+          for (const photo of entry.photos) {
+            try {
+              const form = new FormData(); form.append("image", photo);
+              await api(`/admin/venues/${created[index].id}/photos`, { method: "POST", body: form });
+              uploadedPhotos++;
+            } catch (cause) { photoErrors.push(`Linha ${entry.rowNumber}, ${photo.name}: ${cause instanceof Error ? cause.message : "falha no envio"}`); }
+          }
+        }
+      }
+      await refresh();
+      return { imported: created.length, uploadedPhotos, photoErrors };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Não foi possível importar os registos.";
+      setError(message);
+      throw new Error(message);
+    } finally { setSavingAction(false); }
+  }
   async function updateVenueStatus(venue: Venue, status: Venue["status"]) {
     let body: Record<string, unknown> = { status };
     if (status === "PUBLISHED") {
@@ -867,7 +907,8 @@ export default function AdminConsole() {
           </nav>}
           {tab === "venues" && (
             <>
-              <header className="admin-workbar"><div><p className="eyebrow">Catálogo público</p><h2>Gestão de espaços</h2><p>Revê fotografias e informação antes de publicar. Os dados de demonstração estão identificados e não representam locais reais.</p></div><button className="button button-primary" onClick={() => { resetVenueForm(); setShowVenueForm(true); }}>+ Registar espaço</button></header>
+              <header className="admin-workbar"><div><p className="eyebrow">Catálogo público</p><h2>Gestão de espaços</h2><p>Revê fotografias e informação antes de publicar. Os dados de demonstração estão identificados e não representam locais reais.</p></div><div className="admin-workbar-actions"><button className="button button-outline" type="button" onClick={() => { setShowVenueBulkImport(value => !value); setShowVenueForm(false); }}>Importar CSV</button><button className="button button-primary" type="button" onClick={() => { setShowVenueBulkImport(false); resetVenueForm(); setShowVenueForm(true); }}>+ Registar espaço</button></div></header>
+              {showVenueBulkImport && <BulkCatalogImport kind="venues" busy={savingAction} onClose={() => setShowVenueBulkImport(false)} onImport={(entries) => importCatalog("venues", entries)} />}
               <section className="admin-venue-summary" aria-label="Resumo dos espaços">
                 <article><small>Total</small><strong>{venueStats.total}</strong></article>
                 <article><small>Publicados</small><strong>{venueStats.published}</strong></article>
@@ -936,7 +977,8 @@ export default function AdminConsole() {
           )}
           {tab === "vendors" && (
             <>
-            <header className="admin-workbar"><div><p className="eyebrow">Operação</p><h2>Fila de fornecedores</h2><p>Revê primeiro os perfis pendentes e acompanha os restantes pelo estado.</p></div><button className="button button-primary" onClick={() => { resetVendorForm(); setShowVendorForm(true); }}>+ Registar fornecedor</button></header>
+            <header className="admin-workbar"><div><p className="eyebrow">Operação</p><h2>Fila de fornecedores</h2><p>Revê primeiro os perfis pendentes e acompanha os restantes pelo estado.</p></div><div className="admin-workbar-actions"><button className="button button-outline" type="button" onClick={() => { setShowVendorBulkImport(value => !value); setShowVendorForm(false); }}>Importar CSV</button><button className="button button-primary" type="button" onClick={() => { setShowVendorBulkImport(false); resetVendorForm(); setShowVendorForm(true); }}>+ Registar fornecedor</button></div></header>
+            {showVendorBulkImport && <BulkCatalogImport kind="vendors" busy={savingAction} onClose={() => setShowVendorBulkImport(false)} onImport={(entries) => importCatalog("vendors", entries)} />}
             <div className={`admin-grid ${showVendorForm ? "with-form" : "list-only"}`}>
               <section className="dash-panel">
                 <div className="admin-filter-bar"><label className="admin-search">Pesquisar<input value={vendorSearch} onChange={e => setVendorSearch(e.target.value)} placeholder="Nome, categoria, local ou contacto"/></label><label>Estado<select value={vendorStatusFilter} onChange={e => setVendorStatusFilter(e.target.value)}><option value="PENDING">Por rever</option><option value="ALL">Todos</option><option value="ACTIVE">Activos</option><option value="SUSPENDED">Suspensos</option><option value="DRAFT">Rascunhos</option></select></label><label>Categoria<select value={vendorCategoryFilter} onChange={e => setVendorCategoryFilter(e.target.value)}><option value="">Todas</option>{platformConfig.vendorCategories.map(item => <option key={item}>{item}</option>)}</select></label><label>Província<select value={vendorProvinceFilter} onChange={e => setVendorProvinceFilter(e.target.value)}><option value="">Todas</option>{platformConfig.provinces.map(item => <option key={item}>{item}</option>)}</select></label><button type="button" className="button button-outline compact" onClick={() => { setVendorSearch(""); setVendorCategoryFilter(""); setVendorProvinceFilter(""); }}>Limpar</button></div>
