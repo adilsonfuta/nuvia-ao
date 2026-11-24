@@ -28,7 +28,7 @@ A Web fica disponível em `http://localhost:3000` e a API em `http://localhost:4
 npm run db:seed --workspace=@casar/api
 ```
 
-O seed de demonstração cria ou actualiza conteúdos fictícios e pode configurar uma conta administrativa se `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD` estiverem definidos no `.env`.
+Para criar o administrador inicial, define `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD` no ambiente da API antes de a iniciar. A conta é criada automaticamente no arranque; não é necessário executar um script. Usa uma palavra-passe com pelo menos 12 caracteres. O seed de demonstração serve apenas para carregar conteúdos fictícios.
 
 ## Deploy no Coolify
 
