@@ -11,7 +11,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
-import { IsOptional, IsString, MinLength, MaxLength } from "class-validator";
+import { IsDateString, IsInt, IsOptional, IsString, Max, Min, MinLength, MaxLength } from "class-validator";
 import { DatabaseService } from "./database";
 import { EmailService } from "./email";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
@@ -22,6 +22,14 @@ import { sendVenuePhoto } from "./venue-photos";
 class CreateQuoteDto {
   @IsString() projectId!: string;
   @IsString() vendorId!: string;
+  @IsString() @MinLength(10) @MaxLength(2000) message!: string;
+  @IsOptional() @IsDateString() eventDate?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(10000) partySize?: number;
+}
+class CreateVenueInquiryDto {
+  @IsString() projectId!: string;
+  @IsOptional() @IsDateString() eventDate?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(10000) partySize?: number;
   @IsString() @MinLength(10) @MaxLength(2000) message!: string;
 }
 
@@ -218,6 +226,8 @@ export class QuoteRequestsController {
         projectId: body.projectId,
         vendorId: body.vendorId,
         message: body.message,
+        eventDate: body.eventDate ? new Date(body.eventDate) : undefined,
+        partySize: body.partySize,
       },
       include: { vendor: { select: { name: true } }, project: { select: { title: true } } },
     });
@@ -483,7 +493,7 @@ export class LegalController {
 @ApiTags("Espaços")
 @Controller("venues")
 export class VenuesController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
   @Get("photos/:id/image") photo(@Param("id") id: string, @Res() response: Response) {
     return sendVenuePhoto(id, response);
   }
@@ -524,5 +534,21 @@ export class VenuesController {
     });
     if (!venue) throw new NotFoundException("Espaço não encontrado.");
     return venue;
+  }
+
+  @Post(":venueId/inquiries")
+  @UseGuards(SessionGuard)
+  async inquire(@Param("venueId") venueId: string, @CurrentUser() user: SessionUser, @Body() body: CreateVenueInquiryDto) {
+    const member = await this.db.projectMember.findUnique({ where: { projectId_userId: { projectId: body.projectId, userId: user.id } }, include: { project: { select: { title: true, date: true, guestEstimate: true } } } });
+    if (!member || member.role === "VIEWER") throw new NotFoundException("Evento não encontrado.");
+    const venue = await this.db.venue.findFirst({ where: { id: venueId, status: "PUBLISHED", isDemo: false }, include: { vendor: { select: { id: true, name: true, ownerUserId: true, isDemo: true } } } });
+    if (!venue) throw new NotFoundException("Espaço não encontrado.");
+    const inquiry = await this.db.venueInquiry.create({ data: { venueId, userId: user.id, projectId: body.projectId, eventDate: body.eventDate ? new Date(body.eventDate) : member.project.date, partySize: body.partySize ?? member.project.guestEstimate, message: body.message.trim() } });
+    let deliveredToPortal = false;
+    if (venue.vendor?.ownerUserId && !venue.vendor.isDemo) {
+      void this.email.sendVendorInquiry({ userId: venue.vendor.ownerUserId, name: null, project: member.project.title, vendor: venue.name, key: `venue/${inquiry.id}` });
+      deliveredToPortal = true;
+    }
+    return { id: inquiry.id, status: inquiry.status, deliveredToPortal, message: deliveredToPortal ? "Pedido enviado ao espaço." : "Pedido registado. Este espaço ainda não tem um responsável activo na Nuvia." };
   }
 }

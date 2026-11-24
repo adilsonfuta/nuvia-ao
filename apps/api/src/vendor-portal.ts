@@ -26,6 +26,7 @@ import {
   IsArray,
   IsBoolean,
   IsEmail,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -35,7 +36,7 @@ import {
   Min,
   MinLength,
 } from "class-validator";
-import { NotificationType, QuoteRequestStatus, VendorClaimStatus } from "@casar/database";
+import { AvailabilityStatus, NotificationType, QuoteRequestStatus, VendorClaimStatus } from "@casar/database";
 import { CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
 import { EmailService } from "./email";
@@ -43,6 +44,12 @@ import { notifyProjectMembers } from "./notifications";
 
 const storageDirectory = () => resolve(process.env.PORTFOLIO_STORAGE_DIR || join(process.cwd(), "data", "vendor-portfolio"));
 const publicImageUrl = (id: string) => `/api/v1/vendor-portfolio/${id}/image`;
+const availabilityLabel = (status: AvailabilityStatus) => ({
+  PENDING: "por confirmar",
+  AVAILABLE: "disponível",
+  UNAVAILABLE: "indisponível",
+  ALTERNATIVE_PROPOSED: "alternativa proposta",
+}[status]);
 export async function sendStoredVendorImage(storageKey: string, response: Response, isPublic: boolean) {
   if (!/^[a-f0-9-]{36}\.webp$/i.test(storageKey)) throw new NotFoundException("Imagem não encontrada.");
   const image = await readFile(join(storageDirectory(), storageKey)).catch(() => null);
@@ -51,6 +58,27 @@ export async function sendStoredVendorImage(storageKey: string, response: Respon
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Cache-Control", isPublic ? "public, max-age=31536000, immutable" : "private, no-store");
   response.send(image);
+}
+
+export async function storeVendorPortfolioImage(buffer: Buffer) {
+  let normalized: Buffer;
+  try {
+    normalized = await sharp(buffer, { limitInputPixels: 30_000_000 })
+      .rotate()
+      .resize({ width: 1800, height: 1800, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 84, effort: 4 })
+      .toBuffer();
+  } catch {
+    throw new BadRequestException("Não foi possível processar a imagem. Confirma que o ficheiro é válido.");
+  }
+  const storageKey = `${randomUUID()}.webp`;
+  await mkdir(storageDirectory(), { recursive: true, mode: 0o750 });
+  await writeFile(join(storageDirectory(), storageKey), normalized, { flag: "wx", mode: 0o640 });
+  return { storageKey, byteSize: normalized.length };
+}
+
+export async function removeStoredVendorImage(storageKey: string) {
+  if (/^[a-f0-9-]{36}\.webp$/i.test(storageKey)) await unlink(join(storageDirectory(), storageKey)).catch(() => undefined);
 }
 
 class VendorClaimDto {
@@ -98,6 +126,12 @@ class VendorReviewResponseDto {
 class VendorQuoteResponseDto {
   @IsOptional() @IsInt() @Min(0) @Max(1000000000000) quotedAmount?: number | null;
   @IsOptional() @IsString() @MaxLength(2000) responseNote?: string | null;
+  @IsOptional() @IsEnum(AvailabilityStatus) availabilityStatus?: AvailabilityStatus;
+}
+class VenueInquiryResponseDto {
+  @IsOptional() @IsInt() @Min(0) @Max(1000000000000) quotedAmount?: number | null;
+  @IsOptional() @IsString() @MaxLength(2000) responseNote?: string | null;
+  @IsOptional() @IsEnum(AvailabilityStatus) availabilityStatus?: AvailabilityStatus;
 }
 
 @ApiTags("Área de fornecedores")
@@ -143,7 +177,7 @@ export class VendorPortalController {
       } : {}),
     };
     const ownerWhere = { vendor: { ownerUserId: user.id } };
-    const [vendors, claims, inquiries, inquiryCount, unreadCount, openCount] = await Promise.all([
+    const [vendors, claims, inquiries, inquiryCount, unreadCount, openCount, venueInquiries] = await Promise.all([
       this.db.vendor.findMany({
         where: { ownerUserId: user.id },
         include: {
@@ -175,13 +209,25 @@ export class VendorPortalController {
       this.db.quoteRequest.count({ where: inquiryWhere }),
       this.db.quoteRequest.count({ where: { ...ownerWhere, vendorViewedAt: null } }),
       this.db.quoteRequest.count({ where: { ...ownerWhere, status: { in: [QuoteRequestStatus.NEW, QuoteRequestStatus.SENT] } } }),
+      this.db.venueInquiry.findMany({ where: { venue: { vendor: { ownerUserId: user.id } } }, include: { venue: { select: { id: true, name: true, slug: true } }, project: { select: { id: true, title: true, date: true, province: true, guestEstimate: true } }, user: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 100 }),
     ]);
     return {
       vendors: vendors.map((vendor) => ({ ...vendor, reviews: vendor.reviews.map((review) => ({ ...review, reviewerName: review.isAnonymous ? null : review.reviewer?.name ?? null, reviewer: undefined })) })),
       claims,
       inquiries,
+      venueInquiries,
       inquiryMeta: { page: inquiryPage, pageSize, total: inquiryCount, totalPages: Math.max(1, Math.ceil(inquiryCount / pageSize)), unreadCount, openCount },
     };
+  }
+
+  @Patch("venue-inquiries/:inquiryId")
+  async respondToVenueInquiry(@Param("inquiryId") inquiryId: string, @CurrentUser() user: SessionUser, @Body() body: VenueInquiryResponseDto) {
+    const inquiry = await this.db.venueInquiry.findFirst({ where: { id: inquiryId, venue: { vendor: { ownerUserId: user.id } } }, include: { venue: { select: { name: true, vendor: { select: { id: true } } } }, project: { select: { id: true, title: true } }, user: { select: { id: true, name: true } } } });
+    if (!inquiry) throw new NotFoundException("Pedido de espaço não encontrado.");
+    const updated = await this.db.venueInquiry.update({ where: { id: inquiry.id }, data: { status: QuoteRequestStatus.RESPONDED, availabilityStatus: body.availabilityStatus ?? inquiry.availabilityStatus, quotedAmount: body.quotedAmount === undefined ? inquiry.quotedAmount : body.quotedAmount, responseNote: body.responseNote?.trim() || null, respondedAt: new Date() }, select: { id: true, status: true, availabilityStatus: true, quotedAmount: true, responseNote: true, respondedAt: true } });
+    if (inquiry.projectId) await notifyProjectMembers(this.db, inquiry.projectId, { type: NotificationType.QUOTE_RESPONSE_RECEIVED, key: `venue-response:${inquiry.id}:${updated.respondedAt?.toISOString()}`, sourceId: inquiry.id, title: `Resposta de ${inquiry.venue.name}`, body: `O espaço respondeu ao pedido. Disponibilidade: ${availabilityLabel(updated.availabilityStatus)}.`, href: `/dashboard?tab=fornecedores&event=${encodeURIComponent(inquiry.projectId)}` });
+    if (inquiry.projectId) void this.email.sendVendorResponse({ userId: inquiry.user.id, name: inquiry.user.name, projectId: inquiry.projectId, project: inquiry.project?.title ?? "o teu evento", vendor: inquiry.venue.name, response: `${updated.responseNote ?? ""}\nDisponibilidade: ${availabilityLabel(updated.availabilityStatus)}.`, amount: updated.quotedAmount === null ? null : Number(updated.quotedAmount), key: `venue/${inquiry.id}/${updated.respondedAt?.getTime()}` });
+    return updated;
   }
 
   @Patch("inquiries/:requestId")
@@ -203,21 +249,20 @@ export class VendorPortalController {
         status: QuoteRequestStatus.RESPONDED,
         quotedAmount: body.quotedAmount === undefined ? request.quotedAmount : body.quotedAmount,
         responseNote: body.responseNote?.trim() || null,
+        availabilityStatus: body.availabilityStatus ?? request.availabilityStatus,
         respondedAt: request.respondedAt ?? new Date(),
       },
-      select: { id: true, projectId: true, vendorId: true, status: true, quotedAmount: true, responseNote: true, respondedAt: true },
+      select: { id: true, projectId: true, vendorId: true, status: true, quotedAmount: true, responseNote: true, respondedAt: true, availabilityStatus: true },
     });
     await notifyProjectMembers(this.db, request.projectId, {
       type: NotificationType.QUOTE_RESPONSE_RECEIVED,
       key: `quote-response:${request.id}:${updated.respondedAt?.toISOString()}`,
       sourceId: request.id,
       title: `Resposta de ${request.vendor.name}`,
-      body: body.quotedAmount === undefined || body.quotedAmount === null
-        ? "O fornecedor respondeu ao teu pedido de informação."
-        : `O fornecedor respondeu com uma proposta de ${new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA", maximumFractionDigits: 0 }).format(body.quotedAmount)}.`,
+      body: `${body.quotedAmount === undefined || body.quotedAmount === null ? "O fornecedor respondeu ao teu pedido de informação." : `O fornecedor respondeu com uma proposta de ${new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA", maximumFractionDigits: 0 }).format(body.quotedAmount)}.`} Disponibilidade: ${availabilityLabel(updated.availabilityStatus)}.`,
       href: `/dashboard?tab=fornecedores&event=${encodeURIComponent(request.projectId)}`,
     });
-    void this.email.sendVendorResponse({ userId: request.user.id, name: request.user.name, projectId: request.projectId, project: request.project.title, vendor: request.vendor.name, response: updated.responseNote, amount: updated.quotedAmount === null ? null : Number(updated.quotedAmount), key: `${request.id}/${updated.respondedAt?.getTime() ?? Date.now()}` });
+    void this.email.sendVendorResponse({ userId: request.user.id, name: request.user.name, projectId: request.projectId, project: request.project.title, vendor: request.vendor.name, response: `${updated.responseNote ?? ""}\nDisponibilidade: ${availabilityLabel(updated.availabilityStatus)}.`, amount: updated.quotedAmount === null ? null : Number(updated.quotedAmount), key: `${request.id}/${updated.respondedAt?.getTime() ?? Date.now()}` });
     return updated;
   }
 

@@ -19,10 +19,12 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiCookieAuth, ApiTags } from "@nestjs/swagger";
 import { AccountStatus, UserRole, VenueStatus, VendorApplicationStatus, VendorClaimStatus, VendorContentStatus, VendorReviewStatus, VendorStatus } from "@casar/database";
 import { compare } from "bcryptjs";
+import { Type } from "class-transformer";
 import type { Response } from "express";
-import { sendStoredVendorImage, vendorSocialPayloadIsSafe } from "./vendor-portal";
+import { removeStoredVendorImage, sendStoredVendorImage, storeVendorPortfolioImage, vendorSocialPayloadIsSafe } from "./vendor-portal";
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -39,11 +41,12 @@ import {
   Matches,
   Min,
   MinLength,
+  ValidateNested,
 } from "class-validator";
 import { AdminGuard, AdminOnlyGuard, CurrentUser, SessionGuard, SessionUser } from "./auth";
 import { DatabaseService } from "./database";
 import { storeGuideCover } from "./guide-covers";
-import { storeVenuePhoto } from "./venue-photos";
+import { removeVenuePhoto, storeVenuePhoto } from "./venue-photos";
 
 class VendorInput {
   @IsString() @MinLength(2) name!: string;
@@ -87,6 +90,34 @@ class VendorInput {
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) facebookUrl?: string;
   @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) tiktokUrl?: string;
 }
+
+class VendorImportRow {
+  @IsString() @MinLength(2) @MaxLength(120) name!: string;
+  @IsString() @MinLength(2) @MaxLength(80) category!: string;
+  @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(30) @IsString({ each: true }) @MaxLength(120, { each: true }) services?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(30) @IsString({ each: true }) @MaxLength(120, { each: true }) serviceAreas?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(12) @IsUrl({ protocols: ["http", "https"], require_protocol: true }, { each: true }) @MaxLength(1000, { each: true }) galleryUrls?: string[];
+  @IsOptional() @IsString() @MaxLength(80) province?: string;
+  @IsOptional() @IsString() @MaxLength(100) municipality?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(100000) capacityMin?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(100000) capacityMax?: number;
+  @IsOptional() @IsNumber() @Min(0) priceFrom?: number;
+  @IsOptional() @IsNumber() @Min(0) priceTo?: number;
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  @IsOptional() @IsEmail() @MaxLength(180) email?: string;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) websiteUrl?: string;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) instagramUrl?: string;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) facebookUrl?: string;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) tiktokUrl?: string;
+  @IsOptional() @IsString() @MaxLength(1000) bookingTerms?: string;
+  @IsOptional() @IsString() @MaxLength(1000) paymentTerms?: string;
+  @IsOptional() @IsString() @MaxLength(1000) cancellationTerms?: string;
+}
+class VendorBulkImportInput {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => VendorImportRow) rows!: VendorImportRow[];
+}
+class VendorPortfolioImportImageDto { @IsString() @MinLength(2) @MaxLength(160) altText!: string }
 
 class AccountStatusInput {
   @IsEnum(AccountStatus) status!: AccountStatus;
@@ -186,6 +217,33 @@ class VenuePatch {
   @ValidateIf((body: VenuePatch) => body.status === VenueStatus.SUSPENDED)
   @IsString() @MinLength(8) @MaxLength(500) reason?: string;
 }
+class VenueImportRow {
+  @IsString() @MinLength(2) @MaxLength(120) name!: string;
+  @IsString() @MinLength(2) @MaxLength(80) venueType!: string;
+  @IsOptional() @IsString() @MaxLength(2500) description?: string;
+  @IsOptional() @IsString() @MaxLength(80) province?: string;
+  @IsOptional() @IsString() @MaxLength(100) municipality?: string;
+  @IsOptional() @IsString() @MaxLength(300) address?: string;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) mapsUrl?: string;
+  @IsOptional() @IsNumber() @Min(-90) @Max(90) latitude?: number;
+  @IsOptional() @IsNumber() @Min(-180) @Max(180) longitude?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(100000) capacityMin?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(100000) capacityMax?: number;
+  @IsOptional() @IsNumber() @Min(0) priceFrom?: number;
+  @IsOptional() @IsNumber() @Min(0) priceTo?: number;
+  @IsOptional() @IsArray() @ArrayMaxSize(40) @IsString({ each: true }) @MaxLength(100, { each: true }) amenities?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(80, { each: true }) eventTypes?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @Matches(/^(?:https:\/\/\S+|\/api\/v1\/venues\/photos\/[a-f0-9-]{36}\/image|\/espacos\/demo\/[a-z0-9-]+\.webp)$/i, { each: true }) galleryUrls?: string[];
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  @IsOptional() @IsEmail() @MaxLength(180) email?: string;
+  @IsOptional() @IsUrl({ protocols: ["https"], require_protocol: true }) websiteUrl?: string;
+  @IsOptional() @IsString() @MaxLength(1000) bookingTerms?: string;
+  @IsOptional() @IsString() @MaxLength(1000) paymentTerms?: string;
+  @IsOptional() @IsString() @MaxLength(1000) cancellationTerms?: string;
+}
+class VenueBulkImportInput {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => VenueImportRow) rows!: VenueImportRow[];
+}
 class LegalSourceInput {
   @IsString() @MinLength(3) title!: string;
   @IsOptional() @IsString() url?: string;
@@ -284,6 +342,9 @@ export class PlatformConfigDto {
   vendorCategories!: string[];
   @IsArray() @ArrayMaxSize(30) @IsString({ each: true }) @MaxLength(80, { each: true })
   provinces!: string[];
+}
+function importSlug(value: string) {
+  return value.toLocaleLowerCase("en-US").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 105) || "perfil";
 }
 class VendorClaimReviewDto {
   @IsEnum({ APPROVED: "APPROVED", REJECTED: "REJECTED" }) status!: "APPROVED" | "REJECTED";
@@ -506,6 +567,53 @@ export class AdminController {
     });
     return vendor;
   }
+  @Post("vendors/import") async importVendors(@Body() body: VendorBulkImportInput, @CurrentUser() user: SessionUser) {
+    for (const row of body.rows) {
+      if (row.capacityMin !== undefined && row.capacityMax !== undefined && row.capacityMin > row.capacityMax)
+        throw new BadRequestException(`A capacidade mínima de ${row.name} não pode ser superior à máxima.`);
+      if (row.priceFrom !== undefined && row.priceTo !== undefined && row.priceFrom > row.priceTo)
+        throw new BadRequestException(`O preço mínimo de ${row.name} não pode ser superior ao máximo.`);
+      if (!vendorSocialPayloadIsSafe(row as unknown as Record<string, unknown>))
+        throw new BadRequestException(`Os links públicos de ${row.name} devem usar HTTPS.`);
+    }
+    return this.db.$transaction(async (tx) => {
+      const created: unknown[] = [];
+      for (const [index, row] of body.rows.entries()) {
+        const base = importSlug(row.name);
+        let slug = base;
+        let suffix = 2;
+        while (await tx.vendor.findUnique({ where: { slug }, select: { id: true } })) slug = `${base.slice(0, 100)}-${suffix++}`;
+        const vendor = await tx.vendor.create({ data: { ...row, slug, status: VendorStatus.PENDING } });
+        await tx.auditLog.create({ data: { actorId: user.id, action: "VENDOR_CREATED", resource: "Vendor", resourceId: vendor.id, metadata: { status: VendorStatus.PENDING, source: "BULK_IMPORT", row: index + 1 } } });
+        created.push(vendor);
+      }
+      return created;
+    });
+  }
+  @Post("vendors/:id/portfolio")
+  @UseInterceptors(FileInterceptor("image", {
+    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+    fileFilter: (_request, file, callback) => {
+      const accepted = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
+      callback(accepted ? null : new BadRequestException("Usa uma imagem JPEG, PNG ou WebP."), accepted);
+    },
+  }))
+  async importVendorPortfolioImage(@Param("id") id: string, @Body() body: VendorPortfolioImportImageDto, @UploadedFile() file: { buffer: Buffer } | undefined, @CurrentUser() user: SessionUser) {
+    const vendor = await this.db.vendor.findUnique({ where: { id }, select: { id: true } });
+    if (!vendor) throw new NotFoundException("Fornecedor não encontrado.");
+    if (!file?.buffer) throw new BadRequestException("Escolhe uma fotografia JPEG, PNG ou WebP.");
+    const count = await this.db.vendorPortfolioItem.count({ where: { vendorId: id, status: { in: [VendorContentStatus.PENDING, VendorContentStatus.APPROVED] } } });
+    if (count >= 8) throw new BadRequestException("Cada perfil pode ter até 8 imagens publicadas ou em revisão.");
+    const stored = await storeVendorPortfolioImage(file.buffer);
+    try {
+      const item = await this.db.vendorPortfolioItem.create({ data: { vendorId: id, storageKey: stored.storageKey, altText: body.altText.trim(), sortOrder: count, isCover: count === 0, uploadedBy: user.id, status: VendorContentStatus.PENDING } });
+      await this.db.auditLog.create({ data: { actorId: user.id, action: "VENDOR_PORTFOLIO_UPLOADED", resource: "VendorPortfolioItem", resourceId: item.id, metadata: { vendorId: id, byteSize: stored.byteSize, mediaType: "image/webp", source: "BULK_IMPORT" } } });
+      return { id: item.id, status: item.status, imageUrl: `/api/v1/vendor-portfolio/${item.id}/image` };
+    } catch (error) {
+      await removeStoredVendorImage(stored.storageKey);
+      throw error;
+    }
+  }
   @Patch("vendors/:id") async reviewVendor(
     @Param("id") id: string,
     @Body() body: VendorReview,
@@ -556,6 +664,28 @@ export class AdminController {
   @Get("venues") venues() {
     return this.db.venue.findMany({ orderBy: [{ status: "asc" }, { updatedAt: "desc" }] });
   }
+  @Post("venues/import") async importVenues(@Body() body: VenueBulkImportInput, @CurrentUser() user: SessionUser) {
+    for (const row of body.rows) {
+      if ((row.latitude == null) !== (row.longitude == null)) throw new BadRequestException(`Indica latitude e longitude em conjunto para ${row.name}.`);
+      if (row.capacityMin !== undefined && row.capacityMax !== undefined && row.capacityMin > row.capacityMax)
+        throw new BadRequestException(`A capacidade mínima de ${row.name} não pode ser superior à máxima.`);
+      if (row.priceFrom !== undefined && row.priceTo !== undefined && row.priceFrom > row.priceTo)
+        throw new BadRequestException(`O preço mínimo de ${row.name} não pode ser superior ao máximo.`);
+    }
+    return this.db.$transaction(async (tx) => {
+      const created: unknown[] = [];
+      for (const [index, row] of body.rows.entries()) {
+        const base = importSlug(row.name);
+        let slug = base;
+        let suffix = 2;
+        while (await tx.venue.findUnique({ where: { slug }, select: { id: true } })) slug = `${base.slice(0, 100)}-${suffix++}`;
+        const venue = await tx.venue.create({ data: { ...row, slug, status: VenueStatus.DRAFT, isDemo: false } });
+        await tx.auditLog.create({ data: { actorId: user.id, action: "VENUE_CREATED", resource: "Venue", resourceId: venue.id, metadata: { status: venue.status, venueType: venue.venueType, source: "BULK_IMPORT", row: index + 1 } } });
+        created.push(venue);
+      }
+      return created;
+    });
+  }
   @Post("venues") async createVenue(@Body() body: VenueInput, @CurrentUser() user: SessionUser) {
     if ((body.latitude == null) !== (body.longitude == null))
       throw new BadRequestException("Indica latitude e longitude para marcar o ponto exacto no mapa.");
@@ -585,6 +715,48 @@ export class AdminController {
     const photo = await storeVenuePhoto(file.buffer);
     await this.db.auditLog.create({ data: { actorId: user.id, action: "VENUE_PHOTO_UPLOADED", resource: "VenuePhoto", resourceId: photo.id, metadata: { byteSize: photo.byteSize, mediaType: "image/webp" } } });
     return { imageUrl: photo.imageUrl };
+  }
+  @Post("venues/:id/photos")
+  @UseInterceptors(FileInterceptor("image", {
+    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+    fileFilter: (_request, file, callback) => {
+      const accepted = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
+      callback(accepted ? null : new BadRequestException("Usa uma imagem JPEG, PNG ou WebP."), accepted);
+    },
+  }))
+  async addVenuePhoto(
+    @Param("id") id: string,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string } | undefined,
+    @CurrentUser() user: SessionUser,
+  ) {
+    if (!file) throw new BadRequestException("Escolhe uma fotografia JPEG, PNG ou WebP.");
+    const existing = await this.db.venue.findUnique({ where: { id }, select: { id: true, galleryUrls: true, status: true } });
+    if (!existing) throw new NotFoundException("Espaço não encontrado.");
+    if (existing.galleryUrls.length >= 20) throw new BadRequestException("Cada espaço pode ter até 20 fotografias.");
+    const photo = await storeVenuePhoto(file.buffer);
+    try {
+      const venue = await this.db.$transaction(async (tx) => {
+        const updated = await tx.venue.update({
+          where: { id },
+          data: {
+            galleryUrls: [...existing.galleryUrls, photo.imageUrl],
+            ...(existing.status === VenueStatus.PUBLISHED ? { status: VenueStatus.PENDING, verifiedAt: null } : {}),
+          },
+        });
+        await tx.auditLog.create({ data: {
+          actorId: user.id,
+          action: "VENUE_PHOTO_ADDED",
+          resource: "Venue",
+          resourceId: id,
+          metadata: { imageUrl: photo.imageUrl, byteSize: photo.byteSize, mediaType: "image/webp", status: updated.status },
+        } });
+        return updated;
+      });
+      return { imageUrl: photo.imageUrl, venue };
+    } catch (error) {
+      await removeVenuePhoto(photo.imageUrl);
+      throw error;
+    }
   }
   @Patch("venues/:id") async updateVenue(@Param("id") id: string, @Body() body: VenuePatch, @CurrentUser() user: SessionUser) {
     const existing = await this.db.venue.findUnique({ where: { id } });

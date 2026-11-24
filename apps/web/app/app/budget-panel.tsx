@@ -4,6 +4,7 @@ import { FormEvent, useState } from 'react';
 import { formatAOA } from '../lib/format';
 import { luandaDateInput, luandaDateToIso } from '../lib/time';
 import { ListPagination, PaginatedList, useListPage } from '../lib/list-pagination';
+import type { ProjectKind } from '@casar/contracts';
 import './budget-panel.css';
 
 export type BudgetPayment = {
@@ -30,17 +31,24 @@ export type BudgetExpense = {
 };
 
 const categories = ['Espaço','Catering','Decoração','Fotografia e vídeo','Música','Roupa e beleza','Transporte','Convites','Documentação','Outros'];
+const recommendedCategories: Record<ProjectKind, string[]> = {
+  WEDDING: ['Espaço','Catering','Cerimónia','Documentação','Vestuário','Fotografia e vídeo','Decoração','Música','Transporte','Convites','Outros'],
+  ALAMBAMENTO: ['Itens do pedido','Contribuições familiares','Espaço','Catering','Vestuário','Transporte','Decoração','Fotografia e vídeo','Música','Outros'],
+  PARTY: ['Espaço','Catering','Bolo e doces','Decoração','Música','Animação','Transporte','Convites','Outros'],
+  OTHER: ['Espaço','Alimentação','Equipamento','Transporte','Comunicação','Serviços','Autorizações','Outros'],
+};
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Africa/Luanda', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const displayDate = (value: string) => new Intl.DateTimeFormat('pt-AO', { dateStyle: 'medium', timeZone: 'Africa/Luanda' }).format(new Date(value));
 const statusLabels = { ESTIMATED: 'Prevista', COMMITTED: 'Contratada', PAID: 'Paga' };
 
 export function BudgetPanel({
-  limit, confirmedContributions, expenses, tasks, title, setTitle, category, setCategory, amount, setAmount, status, setStatus, dueAt, setDueAt, taskId, setTaskId, editingId, onSubmit, onCancel, onEdit, onDelete, onOpenTask, onSetLimit, onAddPayment, onUpdatePayment, onDeletePayment, onManageContributions,
+  limit, confirmedContributions, expenses, tasks, projectKind, title, setTitle, category, setCategory, amount, setAmount, status, setStatus, dueAt, setDueAt, taskId, setTaskId, editingId, onSubmit, onCancel, onEdit, onDelete, onOpenTask, onSetLimit, onAddPayment, onUpdatePayment, onDeletePayment, onManageContributions,
 }: {
   limit: number | string | null;
   confirmedContributions: number;
   expenses: BudgetExpense[];
   tasks: { id: string; title: string }[];
+  projectKind: ProjectKind;
   title: string; setTitle: (value: string) => void;
   category: string; setCategory: (value: string) => void;
   amount: string; setAmount: (value: string) => void;
@@ -143,12 +151,13 @@ export function BudgetPanel({
       <div className="budget-section-heading"><div><p className="eyebrow">Registos do evento</p><h3 id="expenses-title">Despesas</h3></div><span>{expenses.length} {expenses.length === 1 ? 'registo' : 'registos'}</span></div>
       <form className="budget-entry-form" onSubmit={onSubmit}>
         <label className="budget-entry-title">Descrição<input required minLength={2} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ex.: Sinal do espaço"/></label>
-        <label>Categoria<select value={category} onChange={(event) => setCategory(event.target.value)}>{allCategories.map((item) => <option key={item}>{item}</option>)}</select></label>
+        <label>Categoria<select value={category} onChange={(event) => setCategory(event.target.value)}>{[...new Set([...recommendedCategories[projectKind], ...allCategories])].map((item) => <option key={item}>{item}</option>)}</select></label>
         <label>Valor (Kz)<input required type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0"/></label>
         <label>Estado<select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="ESTIMATED">Prevista</option><option value="COMMITTED">Contratada</option><option value="PAID">Paga</option></select></label>
         <label>Prazo de pagamento<input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)}/></label>
         <label className="budget-entry-task">Tarefa relacionada<select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">Sem tarefa ligada</option>{tasks.map((task) => <option value={task.id} key={task.id}>{task.title}</option>)}</select></label>
         <div className="budget-entry-actions"><button className="button button-primary compact">{editingId ? 'Guardar alterações' : 'Registar despesa'}</button>{editingId && <button type="button" className="button button-outline compact" onClick={onCancel}>Cancelar</button>}</div>
+        {!editingId && <small className="budget-local-draft-note">O rascunho fica neste dispositivo durante 24 horas. É apagado depois de registares ou cancelares.</small>}
       </form>
       {expenses.length ? <>
         <div className="budget-expense-table-wrap"><table className="budget-expense-table"><thead><tr><th>Despesa</th><th>Categoria</th><th>Estado</th><th>Prazo</th><th>Valor</th><th>Tarefa</th><th>Acções</th></tr></thead><tbody>{visibleExpenses.map((expense) => <tr key={expense.id}>

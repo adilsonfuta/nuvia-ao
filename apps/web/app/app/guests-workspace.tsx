@@ -4,6 +4,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "re
 import QRCode from "qrcode";
 import { api } from "../lib/api";
 import { ListPagination, useListPage } from "../lib/list-pagination";
+import { clearLocalDraft, readLocalDraft, writeLocalDraft } from "../lib/local-drafts";
 
 type Guest = {
   id: string;
@@ -15,6 +16,9 @@ type Guest = {
   seatingTableId: string | null;
   rsvpToken: string;
   invitationSentAt?: string | null;
+  invitationEmailStatus?: "SENT" | "FAILED" | "PENDING" | null;
+  invitationEmailError?: string | null;
+  invitationEmailAttemptedAt?: string | null;
   rsvps: { status: string; partySize: number; source?: "PUBLIC_LINK" | "MANUAL" }[];
 };
 type GuestRequest = {
@@ -224,6 +228,8 @@ export function GuestsWorkspace({
   const [group, setGroup] = useState("");
   const [customGroupName, setCustomGroupName] = useState("");
   const [maxPartySize, setMaxPartySize] = useState("1");
+  const [draftReady, setDraftReady] = useState(false);
+  const guestDraftKey = `nuvia:guest-draft:${projectId}`;
   const [tableName, setTableName] = useState("");
   const [tableCapacity, setTableCapacity] = useState("");
   const [editingTableId, setEditingTableId] = useState("");
@@ -240,6 +246,21 @@ export function GuestsWorkspace({
   const selectedWhatsAppGuests = guests.filter((guest) => selectedForWhatsApp.includes(guest.id) && Boolean(whatsAppNumber(guest.phone)));
   const batchGuest = whatsAppBatch[whatsAppBatchIndex];
   useEffect(() => setOrigin(window.location.origin), []);
+  useEffect(() => {
+    setDraftReady(false);
+    const saved = readLocalDraft<{ name: string; contact: string; group: string; customGroupName: string; maxPartySize: string }>(guestDraftKey);
+    if (saved) {
+      setName(saved.name); setContact(saved.contact); setGroup(saved.group);
+      setCustomGroupName(saved.customGroupName); setMaxPartySize(saved.maxPartySize); setFormOpen(true);
+    }
+    setDraftReady(true);
+  }, [guestDraftKey]);
+  useEffect(() => {
+    if (!draftReady || editingId) return;
+    const draft = { name, contact, group, customGroupName, maxPartySize };
+    if ([name, contact, group, customGroupName].some((value) => value.trim())) writeLocalDraft(guestDraftKey, draft);
+    else clearLocalDraft(guestDraftKey);
+  }, [draftReady, editingId, guestDraftKey, name, contact, group, customGroupName, maxPartySize]);
   const [importing, setImporting] = useState(false);
   const [sendingGuestId, setSendingGuestId] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -301,6 +322,7 @@ export function GuestsWorkspace({
   const { pageItems: displayedTables } = useListPage(tables, tablePage, tablePageSize);
 
   function resetForm() {
+    clearLocalDraft(guestDraftKey);
     setFormOpen(false);
     setEditingId("");
     setName("");
@@ -627,8 +649,8 @@ export function GuestsWorkspace({
         method: "POST",
         body: JSON.stringify({ guestIds: [guest.id] }),
       });
-      if (!result.sent) throw new Error(result.message);
       await onRefresh();
+      if (!result.sent) throw new Error(result.message);
       onNotice(result.message);
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : "Não foi possível enviar o convite por email.");
@@ -731,6 +753,7 @@ export function GuestsWorkspace({
       </div>
       {formOpen && (
         <form className="guest-entry-form" onSubmit={saveGuest}>
+          {!editingId && <p className="guest-local-draft-note">O rascunho fica apenas neste dispositivo durante 24 horas e é apagado depois de guardares ou cancelares.</p>}
           <div className="guest-entry-title">
             <strong>
               {editingId ? "Editar convidado" : "Adicionar convidado"}
@@ -931,8 +954,10 @@ export function GuestsWorkspace({
               </div>
               <div className="guest-card-actions">
                 <button type="button" onClick={() => void emailInvitation(guest)} disabled={!invitationSlug || !guest.email || Boolean(sendingGuestId)}>
-                  {sendingGuestId === guest.id ? "A enviar…" : guest.invitationSentAt ? "Reenviar email" : "Enviar convite por email"}
+                  {sendingGuestId === guest.id ? "A enviar…" : guest.invitationEmailStatus === "FAILED" ? "Tentar email novamente" : guest.invitationSentAt ? "Reenviar email" : "Enviar convite por email"}
                 </button>
+                {guest.invitationEmailStatus === "FAILED" && <small role="status">Último envio falhou. Podes tentar novamente.</small>}
+                {guest.invitationEmailStatus === "SENT" && <small>Enviado por email{guest.invitationEmailAttemptedAt ? ` · ${new Intl.DateTimeFormat("pt-AO", { dateStyle: "short", timeStyle: "short" }).format(new Date(guest.invitationEmailAttemptedAt))}` : ""}</small>}
                 <button
                   type="button"
                   onClick={() => shareRsvp(guest)}
