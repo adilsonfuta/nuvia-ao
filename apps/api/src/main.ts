@@ -7,11 +7,13 @@ import { DatabaseService } from "./database";
 import { createPersistentRateLimit } from "./rate-limit";
 import { assertRsvpTokenEncryptionKey, migrateLegacyRsvpTokens } from "./rsvp-token";
 import { assertProjectDocumentEncryptionKey } from "./project-documents";
+import { bootstrapAdminFromEnvironment } from "./admin-bootstrap";
 
 async function bootstrap() {
   assertRsvpTokenEncryptionKey();
   assertProjectDocumentEncryptionKey();
   const app = await NestFactory.create(AppModule);
+  await bootstrapAdminFromEnvironment(app.get(DatabaseService));
   const migratedRsvpTokens = await migrateLegacyRsvpTokens(app.get(DatabaseService));
   if (migratedRsvpTokens > 0) console.info(`Migrated ${migratedRsvpTokens} legacy RSVP token(s).`);
   app.setGlobalPrefix("api/v1");

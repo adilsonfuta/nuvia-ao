@@ -23,6 +23,7 @@ Define no painel de variáveis da aplicação Compose, sem guardar valores reais
 - `WEB_ORIGIN`: origem exacta do site, por exemplo `https://nuvia.example.com`, sem barra final.
 - `RSVP_TOKEN_ENCRYPTION_KEY`: chave base64 de exactamente 32 bytes; gera com `openssl rand -base64 32`.
 - `PROJECT_DOCUMENT_ENCRYPTION_KEY`: chave Base64 dedicada de exactamente 32 bytes para cifrar ficheiros pessoais dos eventos; gera uma chave diferente com `openssl rand -base64 32` e mantém-na estável.
+- `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD`: define ambos no Coolify para criar automaticamente a conta `ADMIN` no primeiro arranque da API. A palavra-passe deve ter pelo menos 12 caracteres e no máximo 72 bytes. Se o email já pertencer a uma conta `ADMIN`, o arranque preserva a palavra-passe existente. Se pertencer a outra conta, só promove essa conta quando a palavra-passe configurada corresponder; caso contrário, regista um aviso e não altera permissões. Depois da criação inicial, podes remover as variáveis sem remover a conta.
 - `TRUST_PROXY_HOPS`: usa `1` se a instalação tiver apenas o proxy confiável do Coolify antes da API; ajusta se a topologia mudar.
 - `GA4_ENABLED`: opcional e desligado por padrão (`false`). Define `true` para consultar relatórios do GA4 na tab privada **Administração → Métricas**. Se estiver desligado, as credenciais podem ficar vazias.
 - `GA4_PROPERTY_ID`, `GA4_SERVICE_ACCOUNT_EMAIL` e `GA4_SERVICE_ACCOUNT_PRIVATE_KEY`: necessárias apenas quando `GA4_ENABLED=true`. A chave privada deve ficar como segredo do serviço `api`, nunca no serviço `web`.
@@ -45,6 +46,7 @@ O serviço de execução única `migrate` aplica `prisma migrate deploy` antes d
 - `https://<domínio>/` e as rotas públicas respondem por HTTPS.
 - A API responde em `http://api:4000/api/v1/health` dentro da rede; não precisa de domínio público.
 - Registo, sessão segura, recuperação de palavra-passe e carregamento de imagens/comprovativos funcionam com as variáveis de produção.
+- A API regista no log a criação ou confirmação do administrador inicial quando `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD` estão definidos.
 - A pasta `apps/api` escuta em `0.0.0.0:4000` no container.
 
 ## Estado da preparação
