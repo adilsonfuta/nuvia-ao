@@ -7,7 +7,6 @@
     "build": "nest build",
     "start": "node dist/main",
     "db:seed": "node seed.mjs",
-    "create-admin": "node create-admin.mjs",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "npm run build --silent && node --test test/*.test.cjs"

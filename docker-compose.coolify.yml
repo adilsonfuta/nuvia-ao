@@ -42,6 +42,8 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: "4000"
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with host database and port 5432}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN to the public https URL}
       RSVP_TOKEN_ENCRYPTION_KEY: ${RSVP_TOKEN_ENCRYPTION_KEY:?Set a base64 32-byte key}
       PROJECT_DOCUMENT_ENCRYPTION_KEY: ${PROJECT_DOCUMENT_ENCRYPTION_KEY:?Set a dedicated base64 32-byte key for private event documents}
