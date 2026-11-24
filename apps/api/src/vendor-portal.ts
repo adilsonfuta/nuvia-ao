@@ -60,6 +60,27 @@ export async function sendStoredVendorImage(storageKey: string, response: Respon
   response.send(image);
 }
 
+export async function storeVendorPortfolioImage(buffer: Buffer) {
+  let normalized: Buffer;
+  try {
+    normalized = await sharp(buffer, { limitInputPixels: 30_000_000 })
+      .rotate()
+      .resize({ width: 1800, height: 1800, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 84, effort: 4 })
+      .toBuffer();
+  } catch {
+    throw new BadRequestException("Não foi possível processar a imagem. Confirma que o ficheiro é válido.");
+  }
+  const storageKey = `${randomUUID()}.webp`;
+  await mkdir(storageDirectory(), { recursive: true, mode: 0o750 });
+  await writeFile(join(storageDirectory(), storageKey), normalized, { flag: "wx", mode: 0o640 });
+  return { storageKey, byteSize: normalized.length };
+}
+
+export async function removeStoredVendorImage(storageKey: string) {
+  if (/^[a-f0-9-]{36}\.webp$/i.test(storageKey)) await unlink(join(storageDirectory(), storageKey)).catch(() => undefined);
+}
+
 class VendorClaimDto {
   @IsString() vendorId!: string;
   @IsString() @MinLength(10) @MaxLength(600) message!: string;

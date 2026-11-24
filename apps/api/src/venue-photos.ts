@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Response } from "express";
 import sharp from "sharp";
@@ -33,4 +33,9 @@ export async function sendVenuePhoto(id: string, response: Response) {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   response.send(image);
+}
+
+export async function removeVenuePhoto(imageUrl: string) {
+  const id = imageUrl.match(/^\/api\/v1\/venues\/photos\/([a-f0-9-]{36})\/image$/i)?.[1];
+  if (id) await unlink(join(storageDirectory(), `${id}.webp`)).catch(() => undefined);
 }
