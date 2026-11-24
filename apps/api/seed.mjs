@@ -1,6 +1,5 @@
 import { config } from 'dotenv';
 import { PrismaClient } from '@casar/database';
-import bcrypt from 'bcryptjs';
 import { readFileSync } from 'node:fs';
 
 config({ path: new URL('../../.env', import.meta.url) });
@@ -23,20 +22,6 @@ try {
       update: { ...guideData, reviewedAt: reviewedAt ? new Date(reviewedAt) : null },
       create: { ...guideData, reviewedAt: reviewedAt ? new Date(reviewedAt) : null },
     });
-  }
-  if (process.env.SEED_ADMIN_EMAIL && process.env.SEED_ADMIN_PASSWORD) {
-    const email=process.env.SEED_ADMIN_EMAIL.trim().toLowerCase();
-    if (process.env.SEED_ADMIN_PASSWORD.length < 12) throw new Error('SEED_ADMIN_PASSWORD precisa de pelo menos 12 caracteres.');
-    if (Buffer.byteLength(process.env.SEED_ADMIN_PASSWORD, 'utf8') > 72) throw new Error('SEED_ADMIN_PASSWORD não pode exceder 72 bytes (limite do bcrypt).');
-    const existing=await db.user.findUnique({where:{email},select:{id:true,passwordHash:true,role:true}});
-    if (existing) {
-      if (!(await bcrypt.compare(process.env.SEED_ADMIN_PASSWORD, existing.passwordHash))) {
-        throw new Error('A conta configurada para administração já existe e não corresponde à palavra-passe de setup; nenhuma permissão foi alterada.');
-      }
-      if (existing.role !== 'ADMIN') await db.user.update({where:{id:existing.id},data:{role:'ADMIN'}});
-    } else {
-      await db.user.create({data:{email,name:'Administrador',passwordHash:await bcrypt.hash(process.env.SEED_ADMIN_PASSWORD,12),role:'ADMIN'}});
-    }
   }
   console.log('Seed de demonstração concluído; fornecedores fictícios ficam identificados no perfil.');
 } finally { await db.$disconnect(); }
