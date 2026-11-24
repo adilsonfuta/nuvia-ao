@@ -320,6 +320,9 @@ class RsvpDto {
   @IsOptional() @IsInt() @Min(1) @Max(10) partySize?: number;
   @IsOptional() @IsString() @MaxLength(400) note?: string;
 }
+class RetryRsvpEmailDto {
+  @IsString() @MinLength(24) @MaxLength(180) token!: string;
+}
 class ManualRsvpDto {
   @IsEnum(RsvpDecision) status!: "ACCEPTED" | "DECLINED";
   @IsOptional() @IsInt() @Min(1) @Max(10) partySize?: number;
@@ -1827,6 +1830,8 @@ export class ProjectsController {
       update: { role: body.role },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
+    let emailAttempted = false;
+    let emailSent = false;
     if (!existing || existing.role !== body.role) {
       const project = await this.db.eventProject.findUnique({
         where: { id },
@@ -1840,8 +1845,9 @@ export class ProjectsController {
         href: `/dashboard?tab=eventos&event=${encodeURIComponent(id)}`,
       });
       const eventUrl = `${webOrigin()}/dashboard?tab=eventos&event=${encodeURIComponent(id)}`;
+      emailAttempted = true;
       if (existing) {
-        await this.email.sendMemberAccessChanged({
+        emailSent = await this.email.sendMemberAccessChanged({
           to: invited.email,
           name: invited.name,
           actor: user.name || user.email,
@@ -1851,7 +1857,7 @@ export class ProjectsController {
           key: `${id}/${invited.id}/${body.role}/${Date.now()}`,
         });
       } else {
-        await this.email.sendProjectShared(
+        emailSent = await this.email.sendProjectShared(
           invited.email,
           {
             recipient: invited.name,
@@ -1872,7 +1878,7 @@ export class ProjectsController {
         { subject: invited.name || invited.email, role: body.role },
       );
     }
-    return membership;
+    return { ...membership, emailAttempted, emailSent };
   }
   @Delete(":id/members/:userId") async removeMember(
     @Param("id") id: string,
@@ -1893,9 +1899,12 @@ export class ProjectsController {
     });
     if (!removed.count) throw new NotFoundException("Acesso não encontrado.");
     await this.logActivity(id, user.id, "PROJECT_MEMBER_REMOVED", "ProjectMember", userId, { subject: target?.user.name || target?.user.email });
+    let emailAttempted = false;
+    let emailSent = false;
     if (target) {
       const project = await this.db.eventProject.findUnique({ where: { id }, select: { title: true } });
-      await this.email.sendMemberAccessRemoved({
+      emailAttempted = true;
+      emailSent = await this.email.sendMemberAccessRemoved({
         to: target.user.email,
         name: target.user.name,
         actor: user.name || user.email,
@@ -1904,7 +1913,28 @@ export class ProjectsController {
         key: `${id}/${userId}/${Date.now()}`,
       });
     }
-    return { ok: true };
+    return { ok: true, emailAttempted, emailSent };
+  }
+  @Post(":id/members/:userId/email") async resendMemberAccessEmail(
+    @Param("id") id: string,
+    @Param("userId") userId: string,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const owner = await this.owned(id, user.id, true);
+    if (owner.role !== "OWNER") throw new ForbiddenException("Só a pessoa responsável pode reenviar o acesso.");
+    const member = await this.db.projectMember.findUnique({
+      where: { projectId_userId: { projectId: id, userId } },
+      include: { user: { select: { id: true, name: true, email: true } }, project: { select: { title: true } } },
+    });
+    if (!member || member.role === "OWNER") throw new NotFoundException("Acesso não encontrado.");
+    const sent = await this.email.sendProjectShared(member.user.email, {
+      recipient: member.user.name,
+      inviter: user.name || user.email,
+      project: member.project.title,
+      role: member.role === "VIEWER" ? "Consulta" : "Edição",
+      url: `${webOrigin()}/dashboard?tab=eventos&event=${encodeURIComponent(id)}`,
+    }, `${id}/${userId}/retry/${Date.now()}`);
+    return { emailAttempted: true, emailSent: sent, message: sent ? "Email de acesso enviado." : "Não foi possível enviar o email de acesso." };
   }
   private async assertTableCapacity(
     projectId: string,
@@ -1951,7 +1981,7 @@ export class ProjectsController {
 @ApiTags("Convites públicos")
 @Controller("invitations")
 export class PublicInvitationController {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly email: EmailService) {}
   @Get(":slug") async get(
     @Param("slug") slug: string,
     @Query("token") token?: string,
@@ -2021,7 +2051,11 @@ export class PublicInvitationController {
               name: guest.name,
               maxPartySize: guest.maxPartySize,
               tableName: guest.seatingTable?.name ?? null,
-              rsvp: guest.rsvps[0] ?? null,
+              rsvp: guest.rsvps[0] ? {
+                status: guest.rsvps[0].status,
+                partySize: guest.rsvps[0].partySize,
+                confirmationEmailStatus: guest.rsvps[0].confirmationEmailStatus,
+              } : null,
             }
           : null,
     };
@@ -2053,7 +2087,7 @@ export class PublicInvitationController {
       );
     const existing = await this.db.rSVP.findUnique({
       where: { guestId_eventKey: { guestId: guest.id, eventKey: "all" } },
-      select: { status: true, partySize: true },
+      select: { status: true, partySize: true, confirmationEmailStatus: true },
     });
     const response = await this.db.rSVP.upsert({
       where: { guestId_eventKey: { guestId: guest.id, eventKey: "all" } },
@@ -2072,10 +2106,12 @@ export class PublicInvitationController {
         note: body.note,
       },
     });
+    let emailAttempted = false;
+    let emailSent = false;
+    let emailMessage: string | null = null;
+    const responseChanged = !existing || existing.status !== response.status || existing.partySize !== response.partySize;
     if (
-      !existing ||
-      existing.status !== response.status ||
-      existing.partySize !== response.partySize
+      responseChanged
     ) {
       const answer =
         response.status === "ACCEPTED"
@@ -2092,7 +2128,69 @@ export class PublicInvitationController {
         href: `/dashboard?tab=convidados&event=${encodeURIComponent(inv.projectId)}`,
       });
     }
-    return response;
+    if (guest.email && (responseChanged || existing?.confirmationEmailStatus !== "SENT")) {
+      emailAttempted = true;
+      const project = await this.db.eventProject.findUnique({ where: { id: inv.projectId }, select: { title: true, date: true } });
+      emailSent = await this.email.sendRsvpConfirmation({
+        to: guest.email,
+        name: guest.name,
+        project: project?.title || "o evento",
+        date: project?.date ? new Intl.DateTimeFormat("pt-AO", { dateStyle: "long", timeZone: "Africa/Luanda" }).format(project.date) : "",
+        status: response.status as "ACCEPTED" | "DECLINED",
+        partySize: response.partySize,
+        url: `${webOrigin()}/c/${inv.slug}?token=${encodeURIComponent(body.token)}`,
+        key: `${response.id}/${response.updatedAt.toISOString()}`,
+      });
+      emailMessage = emailSent ? "A confirmação foi aceite pelo serviço de email." : "A resposta foi registada, mas não foi possível enviar o email de confirmação. Podes tentar novamente abaixo.";
+      const attemptedAt = new Date();
+      await this.db.rSVP.update({
+        where: { id: response.id },
+        data: {
+          confirmationEmailStatus: emailSent ? "SENT" : "FAILED",
+          confirmationEmailError: emailSent ? null : (this.email.isConfigured ? "Não foi possível entregar o email ao serviço de envio." : "O envio de email está desactivado ou não configurado."),
+          confirmationEmailAttemptedAt: attemptedAt,
+          confirmationEmailSentAt: emailSent ? attemptedAt : null,
+        },
+      });
+    } else if (guest.email && !responseChanged) {
+      emailMessage = "A tua resposta já estava registada e a confirmação por email já foi enviada.";
+    } else {
+      emailMessage = "A tua resposta foi registada. Este convite não tem um email associado para confirmação.";
+    }
+    return { id: response.id, status: response.status, partySize: response.partySize, updatedAt: response.updatedAt, emailAttempted, emailSent, emailMessage };
+  }
+  @Post(":slug/rsvp/resend") async resendRsvpConfirmation(@Param("slug") slug: string, @Body() body: RetryRsvpEmailDto) {
+    const invitation = await this.db.invitation.findUnique({ where: { slug }, select: { id: true, slug: true, projectId: true, isPublic: true } });
+    if (!invitation?.isPublic) throw new NotFoundException("Convite não encontrado.");
+    const tokenHash = hashRsvpToken(body.token);
+    let guest = await this.db.guest.findFirst({ where: { projectId: invitation.projectId, OR: [
+      { rsvpTokenHash: tokenHash },
+      { rsvpTokenPreviousHash: tokenHash, rsvpTokenPreviousExpiresAt: { gt: new Date() } },
+    ] } });
+    if (!guest) guest = await this.db.guest.findFirst({ where: { projectId: invitation.projectId, rsvpTokenLegacy: body.token } });
+    if (!guest) throw new NotFoundException("Este convite individual não foi encontrado.");
+    if (!guest.email) throw new BadRequestException("Este convite não tem um endereço de email associado. Contacta a organização do evento.");
+    const rsvp = await this.db.rSVP.findUnique({ where: { guestId_eventKey: { guestId: guest.id, eventKey: "all" } } });
+    if (!rsvp || (rsvp.status !== "ACCEPTED" && rsvp.status !== "DECLINED")) throw new BadRequestException("Regista primeiro a tua resposta ao convite.");
+    const project = await this.db.eventProject.findUnique({ where: { id: invitation.projectId }, select: { title: true, date: true } });
+    const attemptedAt = new Date();
+    const sent = await this.email.sendRsvpConfirmation({
+      to: guest.email,
+      name: guest.name,
+      project: project?.title || "o evento",
+      date: project?.date ? new Intl.DateTimeFormat("pt-AO", { dateStyle: "long", timeZone: "Africa/Luanda" }).format(project.date) : "",
+      status: rsvp.status,
+      partySize: rsvp.partySize,
+      url: `${webOrigin()}/c/${invitation.slug}?token=${encodeURIComponent(body.token)}`,
+      key: `${rsvp.id}/${attemptedAt.toISOString()}`,
+    });
+    await this.db.rSVP.update({ where: { id: rsvp.id }, data: {
+      confirmationEmailStatus: sent ? "SENT" : "FAILED",
+      confirmationEmailError: sent ? null : (this.email.isConfigured ? "Não foi possível entregar o email ao serviço de envio." : "O envio de email está desactivado ou não configurado."),
+      confirmationEmailAttemptedAt: attemptedAt,
+      confirmationEmailSentAt: sent ? new Date() : null,
+    } });
+    return { emailAttempted: true, emailSent: sent, emailMessage: sent ? "Enviámos uma confirmação para o teu email." : "Não foi possível enviar o email. Tenta novamente mais tarde." };
   }
   @Post(":slug/requests") async requestGuestInclusion(
     @Param("slug") slug: string,

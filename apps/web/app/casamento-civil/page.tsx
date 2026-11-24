@@ -1,6 +1,6 @@
 import LegalAssistant from './legal-assistant';
 
-export const metadata = { title: 'Casamento civil em Angola | Nuvia' };
+export const metadata = { title: 'Casamento civil em Angola', description: 'Consulta orientação, fontes oficiais e contactos para tratar do casamento civil em Angola. Confirma os requisitos junto da Conservatória competente.', alternates: { canonical: '/casamento-civil' } };
 
 export default function CasamentoCivilPage() {
   return <main className="legal-page"><a className="planner-back" href="/">← Voltar ao início</a><article className="legal-card legal-page-card">

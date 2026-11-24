@@ -1,9 +1,10 @@
 import VendorApplicationForm from "./vendor-application-form";
 
 export const metadata = {
-  title: "Cria o perfil do teu serviço | Nuvia",
+  title: "Cria o perfil do teu serviço",
   description:
     "Cria um perfil profissional na Nuvia e apresenta os teus serviços para eventos em Angola.",
+  alternates: { canonical: "/fornecedores/aderir" },
 };
 
 export default function VendorApplicationPage() {
